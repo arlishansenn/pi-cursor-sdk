@@ -1,3 +1,4 @@
+import { withCursorActionTurn } from "./cursor-actions-log.js";
 import { CursorLiveRunAbortError } from "./cursor-live-run-coordinator.js";
 import { drainExistingCursorLiveRunBeforeSend } from "./cursor-provider-live-run-drain.js";
 import { getCursorSessionCwd } from "./cursor-session-scope.js";
@@ -50,7 +51,11 @@ export class CursorProviderTurnRunner {
 		if (this.options?.signal?.aborted) throw new CursorLiveRunAbortError();
 	}
 
-	async run(sdkProcessErrorGuard: ReturnType<typeof installCursorSdkProcessErrorGuard>): Promise<void> {
+	run(sdkProcessErrorGuard: ReturnType<typeof installCursorSdkProcessErrorGuard>): Promise<void> {
+		return withCursorActionTurn(() => this.runTurn(sdkProcessErrorGuard));
+	}
+
+	private async runTurn(sdkProcessErrorGuard: ReturnType<typeof installCursorSdkProcessErrorGuard>): Promise<void> {
 		const { stream, partial, model, context, options, sdkEventDebugRef } = this.params;
 		let prepared: CursorProviderTurnPrepareResult | undefined;
 		let sendResult: CursorProviderTurnSendResult | undefined;

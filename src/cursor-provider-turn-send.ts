@@ -1,3 +1,4 @@
+import { traceCursorAction } from "./cursor-actions-log.js";
 import type { SendOptions } from "@cursor/sdk";
 import { countCursorAgentMessages } from "./cursor-agent-message-web-tools.js";
 import {
@@ -114,7 +115,11 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 		if (prepared.runtimeTarget === "local" && consumeCursorLocalForceOverride(prepared.localForce)) {
 			sendOptions.local = { force: true };
 		}
-		const runPromise = agent.send(payload, sendOptions);
+		const runPromise = traceCursorAction({
+			action: "agent_send", agentId: agent.agentId, runtime: prepared.runtimeTarget,
+			model: params.model.id, mode: meta.sendPlan.mode, reason: meta.sendPlan.reason,
+			promptChars: meta.prompt.text.length, imageCount: meta.prompt.images.length,
+		}, () => agent.send(payload, sendOptions), (run) => ({ agentId: run.agentId, runId: run.id }));
 		// Record at send initiation (promise created), including later reject/cancel paths.
 		if (prepared.runtimeTarget === "local") {
 			recordCursorSessionAgentLineage(agent.agentId);

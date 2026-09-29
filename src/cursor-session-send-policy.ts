@@ -1,3 +1,4 @@
+import { traceCursorSyncAction } from "./cursor-actions-log.js";
 import type { Context } from "@earendil-works/pi-ai";
 import {
 	buildCursorIncrementalPrompt,
@@ -39,5 +40,9 @@ export function buildCursorSessionSendPrompt(
 	options: CursorPromptOptions,
 	plan: CursorSessionSendPlan,
 ): CursorPrompt {
-	return plan.mode === "bootstrap" ? buildCursorPrompt(context, options) : buildCursorIncrementalPrompt(context, options);
+	return traceCursorSyncAction(
+		{ action: "prompt_build", mode: plan.mode, reason: plan.reason, messageCount: context.messages.length },
+		() => plan.mode === "bootstrap" ? buildCursorPrompt(context, options) : buildCursorIncrementalPrompt(context, options),
+		(prompt) => ({ promptChars: prompt.text.length, imageCount: prompt.images.length }),
+	);
 }
