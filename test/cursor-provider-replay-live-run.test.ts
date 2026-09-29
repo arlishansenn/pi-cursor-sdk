@@ -33,6 +33,7 @@ import {
 	getPiToolsMcpUrlFromAgentCreateOptions,
 	createExtensionTestContext} from "./helpers/cursor-provider-harness.js";
 import { streamCursor, __testUtils as cursorProviderTestUtils } from "../src/cursor-provider.js";
+import { __testUtils as actionLogTestUtils } from "../src/cursor-actions-log.js";
 import { __testUtils as sessionAgentTestUtils } from "../src/cursor-session-agent.js";
 import { __testUtils as cursorSessionScopeTestUtils } from "../src/cursor-session-scope.js";
 import { estimateCursorPromptMessageTokens } from "../src/context.js";
@@ -975,5 +976,79 @@ describe("streamCursor native replay live run", () => {
 		expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
 		expect(cancelRun).toHaveBeenCalledTimes(1);
 		expect(mockDispose).toHaveBeenCalledTimes(1);
+	});
+
+	it("carries the starting turn's correlation into every drained live-run usage line", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		const registeredTools: RegisteredTool[] = [];
+		await registerNativeToolDisplayForTest(registeredTools);
+		const dir = mkdtempSync(join(tmpdir(), "cursor-usage-drain-"));
+		vi.stubEnv("CURSOR_SDK_USAGE_LOG", join(dir, "usage.jsonl"));
+		vi.stubEnv("CURSOR_SDK_ACTIONS_LOG", join(dir, "actions.jsonl"));
+		try {
+			let resolveRun: (result: { id: string; status: "finished"; result: string }) => void = () => {};
+			const runWait = vi.fn(
+				() => new Promise<{ id: string; status: "finished"; result: string }>((resolve) => {
+					resolveRun = resolve;
+				}),
+			);
+			const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+				opts.onDelta({ update: { type: "text-delta", text: "I am checking files." } });
+				opts.onDelta({ update: { type: "tool-call-started", toolCall: { name: "read", args: { path: "README.md" } }, callId: "c1" } });
+				opts.onDelta({ update: { type: "tool-call-completed", toolCall: { name: "read", result: { status: "success", value: { content: "# pi-cursor-sdk" } } }, callId: "c1" } });
+				return asMockCursorRun({
+					id: "run-77",
+					agentId: "agent-1",
+					status: "running",
+					wait: runWait,
+					cancel: vi.fn(),
+					supports: () => true,
+					unsupportedReason: () => undefined,
+				});
+			});
+			mockCreatedAgent({ agentId: "agent-1", send: mockSend, [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined) });
+
+			const firstEvents = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+			const firstDone = getDoneEvent(firstEvents);
+			expect(firstDone.reason).toBe("toolUse");
+			const toolCall = firstDone.message.content.find(isToolCallBlock);
+			const readTool = registeredTools.find((tool) => tool.name === "read");
+			const toolResult = await readTool!.execute(toolCall!.id, toolCall!.arguments, undefined, undefined, createExtensionTestContext());
+
+			resolveRun({ id: "run-77", status: "finished", result: "Final answer only." });
+
+			const replayContext = makeContext();
+			replayContext.messages = [
+				...replayContext.messages,
+				firstDone.message,
+				{
+					role: "toolResult",
+					toolCallId: toolCall!.id,
+					toolName: "read",
+					content: toolResult.content,
+					details: toolResult.details,
+					isError: false,
+					timestamp: 2,
+				},
+			];
+
+			const replayEvents = await collectEvents(streamCursor(makeModel(), replayContext, { apiKey: "test-key" }));
+			expect(getDoneEvent(replayEvents).reason).toBe("stop");
+			await actionLogTestUtils.flush();
+
+			const usageLines = readFileSync(join(dir, "usage.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+			expect(usageLines).toHaveLength(2);
+			const sendLines = readFileSync(join(dir, "actions.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+			const agentSend = sendLines.filter((line) => line.action === "agent_send" && line.phase === "success");
+			expect(agentSend).toHaveLength(1);
+			expect(typeof agentSend[0].turnId).toBe("string");
+			expect(agentSend[0].turnId.length).toBeGreaterThan(0);
+			for (const line of usageLines) {
+				expect(line).toMatchObject({ runId: "run-77", mode: "bootstrap", turnId: agentSend[0].turnId });
+			}
+		} finally {
+			vi.unstubAllEnvs();
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });

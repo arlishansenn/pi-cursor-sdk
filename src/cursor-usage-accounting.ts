@@ -9,7 +9,7 @@ import {
 import { asRecord, getNumber } from "./cursor-record-utils.js";
 import type { CursorRuntime } from "./cursor-config.js";
 import { getCursorSessionFile } from "./cursor-session-scope.js";
-import { appendCursorUsageLog, type CursorUsageLogSource } from "./cursor-usage-log.js";
+import { appendCursorUsageLog, type CursorUsageLogCorrelation, type CursorUsageLogSource } from "./cursor-usage-log.js";
 
 export interface CursorUsagePromptOptions extends CursorPromptOptions {
 	maxInputTokens: number;
@@ -115,6 +115,7 @@ export interface CursorSdkUsageApplyOptions {
 	runtime: CursorRuntime;
 	turn?: CursorSdkTurnUsage;
 	billed?: CursorSdkTurnUsage;
+	correlation?: CursorUsageLogCorrelation;
 }
 
 export function applyCursorSdkUsage(partial: AssistantMessage, turnUsage: CursorSdkTurnUsage): void {
@@ -241,6 +242,7 @@ export function applyCursorUsage(
 		provider: model.provider,
 		runtime: sdkUsage?.runtime ?? "local",
 		source: logSource,
+		...sdkUsage?.correlation,
 		inputTokens: logUsage ? logUsage.inputTokens : partial.usage.input,
 		outputTokens: logUsage ? logUsage.outputTokens : partial.usage.output,
 		cacheReadTokens: logUsage ? logUsage.cacheReadTokens : partial.usage.cacheRead,

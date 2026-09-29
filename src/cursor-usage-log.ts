@@ -15,7 +15,14 @@ const DEFAULT_CURSOR_USAGE_LOG_PATH = resolve(homedir(), ".pi/agent/data/pi-curs
 
 export type CursorUsageLogSource = "billed" | "turn" | "estimate";
 
-export interface CursorUsageLogRecord {
+/** Correlates a usage line with the action-log send that produced it. Keys match the actions log. */
+export interface CursorUsageLogCorrelation {
+	turnId?: string;
+	runId?: string;
+	mode?: "bootstrap" | "incremental";
+}
+
+export interface CursorUsageLogRecord extends CursorUsageLogCorrelation {
 	ts: string;
 	session?: string;
 	model: string;

@@ -236,7 +236,7 @@ describe("cursor live run coordinator", () => {
 		const { coordinator, abandonSessionAgent } = makeCoordinator({ idleDisposeMs: 5 });
 		const run = startRun(coordinator);
 		const sdkCancel = vi.fn().mockResolvedValue(undefined);
-		coordinator.attachSdkRun(run, { cancel: sdkCancel });
+		coordinator.attachSdkRun(run, { cancel: sdkCancel, id: "sdk-run-1" });
 		let releaseLease: () => void = () => {};
 		let leaseWaiting = false;
 
@@ -269,7 +269,7 @@ describe("cursor live run coordinator", () => {
 		const sessionBridgeRun = makeBridgeRun("session-bridge");
 		const run = startRun(coordinator, { bridgeRun, sessionBridgeRun });
 		const sdkCancel = vi.fn().mockResolvedValue(undefined);
-		coordinator.attachSdkRun(run, { cancel: sdkCancel });
+		coordinator.attachSdkRun(run, { cancel: sdkCancel, id: "sdk-run-1" });
 		run.recordedToolDisplayIds.push("tool-1", "tool-2");
 		const waitForProgress = coordinator.waitForProgress(run);
 
@@ -297,7 +297,7 @@ describe("cursor live run coordinator", () => {
 		const sessionBridgeRun = makeBridgeRun("session-bridge");
 		const run = startRun(coordinator, { bridgeRun: sessionBridgeRun, sessionBridgeRun, scopeKey: "scope-error" });
 		const sdkCancel = vi.fn().mockResolvedValue(undefined);
-		coordinator.attachSdkRun(run, { cancel: sdkCancel });
+		coordinator.attachSdkRun(run, { cancel: sdkCancel, id: "sdk-run-1" });
 		run.recordedToolDisplayIds.push("tool-1");
 		const waitForProgress = coordinator.waitForProgress(run);
 
@@ -323,7 +323,7 @@ describe("cursor live run coordinator", () => {
 			emitProcessEvent("uncaughtException", sdkCancelError, "uncaughtException");
 			throw sdkCancelError;
 		});
-		coordinator.attachSdkRun(run, { cancel: sdkCancel });
+		coordinator.attachSdkRun(run, { cancel: sdkCancel, id: "sdk-run-1" });
 		let listenerCalled = false;
 		const listener = () => {
 			listenerCalled = true;
@@ -352,5 +352,29 @@ describe("cursor live run coordinator", () => {
 		]);
 
 		expect(coordinator.getPendingFromContext(context, replayIdFromToolCallId)).toBe(run);
+	});
+
+	it("keeps the starting turn's correlation on the run and records the SDK run id at attach", async () => {
+		const { coordinator } = makeCoordinator();
+		const run = startRun(coordinator);
+		expect(run.turnId).toBeUndefined();
+		expect(run.mode).toBeUndefined();
+
+		const correlated = coordinator.start({
+			id: "cursor-replay-2",
+			agent: makeAgent(),
+			sessionAgentScopeKey: "scope-1",
+			promptInputTokens: 12,
+			turnId: "turn-abc",
+			mode: "incremental",
+		});
+		expect(correlated.turnId).toBe("turn-abc");
+		expect(correlated.mode).toBe("incremental");
+		expect(correlated.sdkRunId).toBeUndefined();
+
+		coordinator.attachSdkRun(correlated, { cancel: vi.fn(), id: "sdk-run-7" });
+		expect(correlated.sdkRunId).toBe("sdk-run-7");
+		await coordinator.release(run);
+		await coordinator.release(correlated);
 	});
 });

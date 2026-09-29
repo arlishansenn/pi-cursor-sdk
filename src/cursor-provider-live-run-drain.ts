@@ -205,6 +205,7 @@ function emitCursorNativeToolUseTurn(
 	applyCursorUsage(partial, model, context, cursorLiveRuns.takeTurnInputTokens(run, toolResultInputTokens), {
 		runtime: "local",
 		turn: cursorLiveRuns.takeSdkTurnUsage(run),
+		correlation: { turnId: run.turnId, runId: run.sdkRunId, mode: run.mode },
 	});
 	partial.stopReason = "toolUse";
 	stream.push({ type: "done", reason: "toolUse", message: partial });
@@ -254,6 +255,7 @@ function emitCursorBridgeToolUseTurn(
 	applyCursorUsage(partial, model, context, cursorLiveRuns.takeTurnInputTokens(run, toolResultInputTokens), {
 		runtime: "local",
 		turn: cursorLiveRuns.takeSdkTurnUsage(run),
+		correlation: { turnId: run.turnId, runId: run.sdkRunId, mode: run.mode },
 	});
 	partial.stopReason = "toolUse";
 	stream.push({ type: "done", reason: "toolUse", message: partial });
@@ -391,6 +393,7 @@ export async function drainCursorLiveRunTurn(
 					runtime: "local",
 					turn: cursorLiveRuns.takeSdkTurnUsage(run),
 					billed: run.billedTurnUsage,
+					correlation: { turnId: run.turnId, runId: run.sdkRunId, mode: run.mode },
 				});
 				if (run.resumeNotice) {
 					emitDisplayOnlyTraceBlock(stream, partial, run.resumeNotice);

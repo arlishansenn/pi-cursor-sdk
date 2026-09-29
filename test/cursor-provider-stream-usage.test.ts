@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	resetCursorProviderTestState,
 	makeModel,
@@ -11,6 +14,7 @@ import {
 	asMockCursorRun,
 } from "./helpers/cursor-provider-harness.js";
 import { streamCursor } from "../src/cursor-provider.js";
+import { __testUtils as actionLogTestUtils } from "../src/cursor-actions-log.js";
 
 describe("streamCursor usage accounting", () => {
 	beforeEach(resetCursorProviderTestState);
@@ -96,6 +100,43 @@ describe("streamCursor usage accounting", () => {
 		expect(done.message.usage.cacheRead).toBe(24_000);
 		expect(done.message.usage.cacheWrite).toBe(123);
 		expect(done.message.usage.totalTokens).toBe(25_432 + 612);
+	});
+
+	it("logs usage correlation matching the action journal agent_send line", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "cursor-usage-correlation-"));
+		vi.stubEnv("CURSOR_SDK_USAGE_LOG", join(dir, "usage.jsonl"));
+		vi.stubEnv("CURSOR_SDK_ACTIONS_LOG", join(dir, "actions.jsonl"));
+		try {
+			const mockSend = vi.fn().mockImplementation(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+				opts.onDelta({ update: { type: "text-delta", text: "done" } });
+				opts.onDelta({ update: { type: "turn-ended", usage: { inputTokens: 1_000, outputTokens: 40, cacheReadTokens: 900, cacheWriteTokens: 20 } } });
+				return asMockCursorRun({
+					id: "run-42",
+					agentId: "agent-1",
+					status: "finished",
+					wait: vi.fn().mockResolvedValue({ id: "run-42", status: "finished", result: "done" }),
+					cancel: vi.fn(),
+					supports: () => true,
+					unsupportedReason: () => undefined,
+				});
+			});
+			mockCreatedAgent({ send: mockSend, [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined) });
+
+			const events = await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" }));
+			expect(getDoneEvent(events).reason).toBe("stop");
+			await actionLogTestUtils.flush();
+
+			const usageLine = JSON.parse(readFileSync(join(dir, "usage.jsonl"), "utf8").trim());
+			const sendLines = readFileSync(join(dir, "actions.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+			const agentSend = sendLines.filter((line) => line.action === "agent_send" && line.phase === "success");
+			expect(agentSend).toHaveLength(1);
+			expect(typeof agentSend[0].turnId).toBe("string");
+			expect(agentSend[0].turnId.length).toBeGreaterThan(0);
+			expect(usageLine).toMatchObject({ runId: "run-42", mode: "bootstrap", source: "turn", turnId: agentSend[0].turnId });
+		} finally {
+			vi.unstubAllEnvs();
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("falls back to bounded estimates when SDK turn usage exceeds the model window", async () => {

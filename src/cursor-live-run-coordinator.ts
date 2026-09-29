@@ -14,6 +14,7 @@ import type { CursorSdkTurnUsage } from "./cursor-usage-accounting.js";
 import type { CursorNativeToolDisplayItem } from "./cursor-native-tool-display-state.js";
 import type { CursorPiBridgeToolRequest, CursorPiToolBridgeRun } from "./cursor-pi-tool-bridge.js";
 import { getCursorSessionScopeKey } from "./cursor-session-scope.js";
+import type { CursorSessionSendMode } from "./cursor-session-send-policy.js";
 import type { CursorSdkEventDebugRecorder } from "./cursor-sdk-event-debug.js";
 import { installCursorSdkProcessErrorGuard } from "./cursor-sdk-process-error-guard.js";
 
@@ -34,6 +35,7 @@ export type CursorLiveQueuedEvent =
 
 export interface CursorLiveSdkRun {
 	cancel(): Promise<void>;
+	readonly id: string;
 }
 
 export interface CursorLiveRun {
@@ -43,6 +45,10 @@ export interface CursorLiveRun {
 	sessionBridgeRun?: CursorPiToolBridgeRun;
 	sessionAgentScopeKey: string;
 	sdkRun?: CursorLiveSdkRun;
+	/** Correlation with the action-log turn/send that started this run; usage lines reuse it. */
+	turnId?: string;
+	mode?: CursorSessionSendMode;
+	sdkRunId?: string;
 	ignoreFutureSdkTurnUsage?: boolean;
 	accounting: CursorLiveRunAccountingState;
 	billedTurnUsage?: CursorSdkTurnUsage;
@@ -70,6 +76,8 @@ export interface CursorLiveRunCreateParams {
 	promptInputTokens: number;
 	textDeltas?: string[];
 	debugRecorder?: CursorSdkEventDebugRecorder;
+	turnId?: string;
+	mode?: CursorSessionSendMode;
 }
 
 export interface CursorLiveRunCoordinatorDeps {
@@ -293,6 +301,8 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 				bridgeRun: params.bridgeRun,
 				sessionBridgeRun: params.sessionBridgeRun,
 				sessionAgentScopeKey,
+				turnId: params.turnId,
+				mode: params.mode,
 				accounting: createCursorLiveRunAccountingState(params.promptInputTokens),
 				pendingEvents: [],
 				textDeltas: params.textDeltas ?? [],
@@ -318,6 +328,7 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 		attachSdkRun(run, sdkRun): void {
 			if (run.disposed) return;
 			run.sdkRun = sdkRun;
+			run.sdkRunId = sdkRun.id;
 		},
 
 		markFinished(run, finalText): void {
