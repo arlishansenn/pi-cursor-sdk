@@ -13,7 +13,10 @@ export const SECRET_PATTERNS = [
 	[/https?:\/\/[^/\s]*\/cursor-pi-tool-bridge\/[A-Za-z0-9_.:-]+\/mcp/gi, "bridge endpoint URL", "[REDACTED_BRIDGE_ENDPOINT_URL]"],
 	[/"(apiKey|accessToken|refreshToken|session|cookie)"\s*:\s*"[^"\s]{12,}"/gi, "auth/token JSON field", '"$1":"[REDACTED_SECRET]"'],
 	[/\b[a-z][a-z0-9+.-]*:\/\/(?!\[redacted\]@)[^\s/?#]*@[^\s/?#]+/gi, "credential-bearing URL", "[REDACTED_CREDENTIAL_URL]"],
-	[/\b[^\s/:@]+:[^\s/]+@(?=[A-Za-z0-9.-]+(?::|\/|\s|$))/g, "credential-bearing SCP URL", "[REDACTED_CREDENTIAL_URL]"],
+	// SCP credentials look like user:pass@host. Exclude host segments that are
+	// 2-3 dot-joined numeric groups (package versions like pkg@0.70.0, seen in
+	// pi --list output); 4-group IPv4 hosts stay covered.
+	[/\b[^\s/:@]+:[^\s/]+@(?=(?!\d+(?:\.\d+){1,2}(?::|\/|\s|$))[A-Za-z0-9.-]+(?::|\/|\s|$))/g, "credential-bearing SCP URL", "[REDACTED_CREDENTIAL_URL]"],
 ];
 
 const AUTH_ASSIGNMENT_PATTERN = /(?:^|[^A-Za-z0-9_$])(?:authorization|api[_-]?key|apiKey|access[_-]?token|refresh[_-]?token|token)["']?\s*[:=]\s*/gim;
