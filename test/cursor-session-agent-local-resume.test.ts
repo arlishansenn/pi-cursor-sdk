@@ -1,5 +1,8 @@
-import { toNamespacedPath } from "node:path";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { toNamespacedPath, join } from "node:path";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { __testUtils as actionLog } from "../src/cursor-actions-log.js";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { computeCursorContextFingerprint } from "../src/context.js";
 import { __testUtils as cursorSessionScopeTestUtils } from "../src/cursor-session-scope.js";
 import { __testUtils as resumeTestUtils } from "../src/cursor-session-agent-resume.js";
@@ -12,12 +15,22 @@ import { installCursorSessionStoreMock } from "./helpers/cursor-session-store.js
 import { buildCursorSessionStateRoot } from "../src/cursor-session-store.js";
 
 describe("cursor-session-agent local resume", () => {
+	let actionDir: string;
+	let actionPath: string;
+	afterEach(async () => {
+		await actionLog.flush();
+		vi.unstubAllEnvs();
+		rmSync(actionDir, { recursive: true, force: true });
+	});
 	beforeEach(async () => {
 		installCursorSessionStoreMock();
 		cursorSessionScopeTestUtils.reset();
 		resumeTestUtils.reset();
 		await sessionAgentTestUtils.disposeAllSessionCursorAgents();
 		vi.clearAllMocks();
+		actionDir = mkdtempSync(join(tmpdir(), "cursor-resume-actions-"));
+		actionPath = join(actionDir, "actions.jsonl");
+		vi.stubEnv("CURSOR_SDK_ACTIONS_LOG", actionPath);
 	});
 
 	it("resumes a recorded local SDK agent from its versioned session store", async () => {
@@ -83,6 +96,10 @@ describe("cursor-session-agent local resume", () => {
 			}),
 		);
 		expect(createAgent).not.toHaveBeenCalled();
+		await actionLog.flush();
+		const rows = readFileSync(actionPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+		expect(rows.filter((row) => row.action === "agent_resume").map((row) => row.phase)).toEqual(["start", "success"]);
+		expect(rows.some((row) => row.action === "agent_create")).toBe(false);
 	});
 
 	it("resumes a legacy default-store agent before force-creating its session-store replacement", async () => {

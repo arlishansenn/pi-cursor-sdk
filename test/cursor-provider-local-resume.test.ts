@@ -1,5 +1,9 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { __testUtils as actionLog } from "../src/cursor-actions-log.js";
 import { Type } from "typebox";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import {
 	asMockCursorRun,
 	asMockSdkAgent,
@@ -25,7 +29,23 @@ import { computeCursorContextFingerprint } from "../src/context.js";
 import { buildCursorModelSelection } from "../src/model-discovery.js";
 
 describe("streamCursor local resume", () => {
-	beforeEach(resetCursorProviderTestState);
+	let actionDir: string;
+	let actionPath: string;
+	beforeEach(async () => {
+		await resetCursorProviderTestState();
+		actionDir = mkdtempSync(join(tmpdir(), "cursor-resume-journal-"));
+		actionPath = join(actionDir, "actions.jsonl");
+		vi.stubEnv("CURSOR_SDK_ACTIONS_LOG", actionPath);
+	});
+	afterEach(async () => {
+		await actionLog.flush();
+		vi.unstubAllEnvs();
+		rmSync(actionDir, { recursive: true, force: true });
+	});
+	async function journal() {
+		await actionLog.flush();
+		return readFileSync(actionPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+	}
 
 	function seedResumeHandle(
 		scopeKey: string,
@@ -104,12 +124,16 @@ describe("streamCursor local resume", () => {
 		expect(prompt.text).toContain("User: Follow up");
 		expect(prompt.text).toContain("User: Hello");
 		expect(prompt.text).toContain("prefer pi__mcp for MCP work and pi__subagent for delegation");
+		const rows = await journal();
+		expect(rows.find((row) => row.action === "send_plan")).toMatchObject({ reason: "process_resume", resetAgent: false });
+		expect(new Set(rows.map((row) => row.turnId)).size).toBe(1);
+		expect(rows.every((row) => typeof row.turnId === "string")).toBe(true);
 	});
 
 	it.each([
 		{ reason: "incremental_threshold", fingerprint: (context: ReturnType<typeof makeContext>) => computeCursorContextFingerprint(context), count: 20 },
 		{ reason: "context_divergence", fingerprint: () => "stale-context", count: 0 },
-	])("replaces a resumed agent with Agent.create for $reason while preserving resume persistence", async ({ fingerprint, count }) => {
+	])("replaces a resumed agent with Agent.create for $reason while preserving resume persistence", async ({ reason, fingerprint, count }) => {
 		process.env.PI_CURSOR_LOCAL_RESUME = "1";
 		const context = makeContext();
 		const oldDispose = vi.fn().mockResolvedValue(undefined);
@@ -134,6 +158,15 @@ describe("streamCursor local resume", () => {
 		expect(mockedCreate).toHaveBeenCalledTimes(1);
 		expect(newSend).toHaveBeenCalledTimes(1);
 		expect(resumeTestUtils.state.pendingHandle).toMatchObject({ agentId: "agent-new" });
+		const rows = await journal();
+		const decision = rows.findIndex((row) => row.action === "send_plan" && row.reason === reason);
+		const create = rows.findIndex((row) => row.action === "agent_create" && row.phase === "start");
+		const send = rows.findIndex((row) => row.action === "agent_send" && row.phase === "start");
+		expect(decision).toBeGreaterThan(-1);
+		expect(create).toBeGreaterThan(decision);
+		expect(send).toBeGreaterThan(create);
+		expect(rows[send].turnId).toBe(rows[decision].turnId);
+		expect(rows[send].agentId).toBe("agent-new");
 	});
 
 	it("does not pass a crafted cloud agent ID to local Agent.resume", async () => {
@@ -178,6 +211,13 @@ describe("streamCursor local resume", () => {
 		expect(collectThinkingDeltas(events)).toContain("Could not resume prior Cursor agent");
 		expect(JSON.stringify(getDoneEvent(events).message.content)).not.toContain("Could not resume prior Cursor agent");
 		expect(collectThinkingDeltas(followUpEvents)).not.toContain("Could not resume prior Cursor agent");
+		const rows = await journal();
+		const failure = rows.findIndex((row) => row.action === "agent_resume" && row.phase === "error");
+		const create = rows.findIndex((row) => row.action === "agent_create" && row.phase === "start");
+		expect(failure).toBeGreaterThan(-1);
+		expect(create).toBeGreaterThan(failure);
+		expect(rows[create].turnId).toBe(rows[failure].turnId);
+		expect(rows.filter((row) => row.action === "agent_send" && row.phase === "start").map((row) => row.agentId)).toEqual(["agent-new", "agent-new"]);
 	});
 
 	it("emits the resume fallback continuity note on the live native replay path", async () => {

@@ -1,4 +1,7 @@
-import { toNamespacedPath } from "node:path";
+import { toNamespacedPath, join } from "node:path";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { __testUtils as actionLog } from "../src/cursor-actions-log.js";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { computeCursorContextFingerprint, shouldBootstrapCursorContext } from "../src/context.js";
 import { createEventHarness, createExtensionTestContext, makeContext } from "./helpers/pi-harness.js";
@@ -46,6 +49,35 @@ describe("cursor-session-agent", () => {
 		expect(createAgent).toHaveBeenCalledTimes(1);
 		expect(createAgent).toHaveBeenCalledWith(expect.objectContaining({ mode: "agent" }));
 		expect(mockDispose).not.toHaveBeenCalled();
+	});
+
+	it("journals create, reuse and reset without credentials or raw pool keys", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "cursor-agent-journal-"));
+		const path = join(dir, "actions.jsonl");
+		vi.stubEnv("CURSOR_SDK_ACTIONS_LOG", path);
+		try {
+			cursorSessionScopeTestUtils.set("/private/project", "/tmp/sessions/journal.jsonl");
+			const params = {
+				apiKey: "secret-test-credential", agentMode: "agent" as const, cwd: "/private/project",
+				modelSelection: { id: "composer-2.5" },
+				createAgent: vi.fn().mockResolvedValue({ agentId: "agent-journal", [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined) }),
+			};
+			await acquireSessionCursorAgent(params);
+			await acquireSessionCursorAgent(params);
+			await sessionAgentTestUtils.resetSessionCursorAgent();
+			await actionLog.flush();
+			const text = await readFile(path, "utf8");
+			const rows = text.trim().split("\n").map((line) => JSON.parse(line));
+			expect(rows.filter((r) => r.action === "agent_create").map((r) => r.phase)).toEqual(["start", "success"]);
+			expect(rows.filter((r) => r.action === "agent_lease").map((r) => r.created)).toEqual([true, false]);
+			expect(rows.some((r) => r.action === "agent_reset")).toBe(true);
+			expect(text).not.toContain(params.apiKey);
+			expect(text).not.toContain(params.cwd);
+		} finally {
+			await actionLog.flush();
+			vi.unstubAllEnvs();
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("passes one session-scoped store through Agent.create and disposes it with the pooled agent", async () => {

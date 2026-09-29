@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { __testUtils as actionLog } from "../src/cursor-actions-log.js";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Type } from "typebox";
 import {
 	resetCursorProviderTestState,
@@ -38,7 +39,19 @@ async function setCursorModeForProviderTest(mode: "agent" | "plan"): Promise<voi
 }
 
 describe("streamCursor prompt and model config", () => {
-	beforeEach(resetCursorProviderTestState);
+	let actionDir: string;
+	let actionPath: string;
+	beforeEach(async () => {
+		await resetCursorProviderTestState();
+		actionDir = mkdtempSync(join(tmpdir(), "cursor-cloud-actions-"));
+		actionPath = join(actionDir, "actions.jsonl");
+		vi.stubEnv("CURSOR_SDK_ACTIONS_LOG", actionPath);
+	});
+	afterEach(async () => {
+		await actionLog.flush();
+		vi.unstubAllEnvs();
+		rmSync(actionDir, { recursive: true, force: true });
+	});
 
 	it("leaves local safety controls off by default", async () => {
 		mockCreatedAgent({
@@ -249,6 +262,12 @@ describe("streamCursor prompt and model config", () => {
 		expect(sentMessage.text).toContain("fresh cloud request");
 		expect(sentMessage.text).not.toContain("old local context");
 		expect(sentMessage.text).not.toContain("old assistant context");
+		await actionLog.flush();
+		const rows = readFileSync(actionPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+		expect(rows.find((row) => row.action === "send_plan")).toMatchObject({ runtime: "cloud", mode: "bootstrap", phase: "decision" });
+		expect(rows.find((row) => row.action === "prompt_build" && row.phase === "success")).toMatchObject({ messageCount: 1 });
+		expect(new Set(rows.map((row) => row.turnId)).size).toBe(1);
+		expect(rows.every((row) => typeof row.turnId === "string")).toBe(true);
 	});
 
 	it("passes explicit Cursor-managed cloud environment selection into Agent.create", async () => {

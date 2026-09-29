@@ -525,6 +525,16 @@ Use `npm run debug:provider-events` to capture the same `onDelta`/`onStep` paylo
 
 See [Cursor testing lessons](docs/cursor-testing-lessons.md#cursor-sdk-event-capture-probe) for usage, artifact layout, and safety notes.
 
+### Agent 动作日志
+
+默认将关键动作的元数据异步追加到 `~/.pi/agent/data/pi-cursor-sdk/actions.jsonl`。使用 `CURSOR_SDK_ACTIONS_LOG=<path>` 更换路径，或 `CURSOR_SDK_ACTIONS_LOG=0` 关闭。此日志独立于已有的 `CURSOR_SDK_USAGE_LOG`，不会开启全量 SDK debug。
+
+日志覆盖 local agent 的 create/resume 尝试与成功/失败、resume 策略、池复用、失效与重置、send-state 提交、重置前的 send-plan 决策、prompt 组装及实际 send。cloud 的 send-plan、create、prompt 组装与 send 同样记录，messageCount 来自实际传给 prompt builder 的筛选后 context。`agent_send.success` 只表示 SDK 返回 run，不代表 LLM 执行成功或计费完成。dispose 记录的是释放意图，不能作为资源已释放的证明。
+
+每条含 `schemaVersion`、`ts`、`processId`、进程内 `seq` 和哈希 `scopeId`，不记录会话路径或文件名。每次 provider 调用在入口分配 `turnId`，通过 AsyncLocalStorage 传播到决策、组装、agent 生命周期与发送动作；异步等待或并发调用不会共享同一个 turnId。一次动作的开始与结果通过 `operationId` 关联，同一 turn 内重新组装或再次发送会有新的 operationId。provider 调用以外的生命周期事件没有 turnId，通过 scopeId 关联。SDK 标识通过 `agentId`/`runId` 关联。prompt 只记录字符数、图片数和 builder 输入 context 的消息数（`messageCount`，不是实际发送条数；local incremental 会在 builder 内选最新 user 消息），不记录正文、原始 pool key、SDK options、凭据或异常内容。重建前的 `send_plan` 保留原始触发原因，避免重建后的 `initial` 覆盖证据；`context_divergence` 当前仍未细分指纹差异。
+
+调用方不等待写盘，目录创建与追加均使用异步文件 API。每进程按 FIFO 写入，最多保留 **1024** 条待写记录；超过上限丢弃新记录，后续行的累计 `dropped` 显示缺口，`writeFailures` 显示失败次数。正常退出由待执行 I/O 排空，强制退出可能丢失队尾；不同进程没有全局顺序，文件不自动轮转，需要按容量归档。新文件权限为 `0600`，既有文件权限不改变。
+
 ### Usage log
 
 Every applied SDK turn usage appends one JSONL line (numbers and identifiers only — never prompt text, tool args, or keys) to `~/.pi/agent/data/pi-cursor-sdk/usage.jsonl` by default. Each line carries `ts`, pi `session` file name, `model`, `provider`, `runtime`, `source` (`turn` = local turn-ended usage, `billed` = `Agent.getUsage()` delta, `estimate` = character approximation when the SDK reported nothing), and the raw SDK token fields `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, `totalTokens` — `inputTokens` is the full prompt and the cache fields partition it, so cache hit share is `cacheReadTokens / inputTokens` offline. Override the destination with `CURSOR_SDK_USAGE_LOG=<path>`; disable with `CURSOR_SDK_USAGE_LOG=0`. Failures to write are swallowed and never affect the provider turn.

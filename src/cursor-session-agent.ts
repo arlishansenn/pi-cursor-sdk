@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { appendCursorAction, traceCursorAction } from "./cursor-actions-log.js";
 import type { AgentModeOption, LocalAgentOptions, LocalAgentStore, ModelSelection, SDKAgent, SettingSource } from "@cursor/sdk";
 import type { Context } from "@earendil-works/pi-ai";
 import {
@@ -258,6 +259,7 @@ async function disposePoolEntryForScope(scopeKey: string, options?: { terminal?:
 		terminalDisposedScopeGenerations.set(scopeKey, getCursorSessionScopeGeneration(scopeKey));
 	}
 	const entry = sessionAgentsByScope.get(scopeKey);
+	if (entry) appendCursorAction({ action: "agent_dispose", phase: "start", scopeKey, instanceId: entry.instanceId, reason: options?.terminal ? "terminal" : "replacement" });
 	invalidatedScopeKeys.delete(scopeKey);
 	const deadTransport = deadTransportScopeKeys.delete(scopeKey);
 	if (!entry) return;
@@ -302,6 +304,10 @@ function commitSessionAgentSendForLease(
 	} else {
 		entry.sendState.incrementalSendCount += 1;
 	}
+	appendCursorAction({
+		action: "send_state_commit", phase: "success", scopeKey, instanceId, agentId: entry.agent.agentId,
+		mode: bootstrapped ? "bootstrap" : "incremental", incrementalSendCount: entry.sendState.incrementalSendCount,
+	});
 	if (entry.resumeEnabled) {
 		persistCursorSessionAgentResumeHandle({
 			runtime: "local",
@@ -382,6 +388,7 @@ function leaseFromEntry(
 	params: SessionCursorAgentCreateParams,
 	created: boolean,
 ): SessionCursorAgentLease {
+	appendCursorAction({ action: "agent_lease", phase: "success", scopeKey, instanceId: entry.instanceId, agentId: entry.agent.agentId, created, resumed: entry.resumed });
 	entry.resumeEnabled = params.localResume === true;
 	bindBridgeToolRequest(entry, params.onBridgeToolRequest);
 	entry.bridgeRun?.setDebugRecorder(params.debugRecorder);
@@ -493,9 +500,10 @@ async function createSessionAgentEntry(
 		let agent: SDKAgent | undefined;
 		let effectiveSendState = sendState;
 		let resumed = false;
+		appendCursorAction({ action: "agent_resume_policy", phase: "decision", scopeKey, instanceId, resumeEligible, hasResumeHandle: !!resumeHandle, resumeAttemptAllowed, resumeFallback: storeSelection.resumeFallback, forceCreate: params.forceCreate });
 		if (resumeHandle && resumeAttemptAllowed && resumeAgent) {
 			try {
-				agent = await resumeAgent(resumeHandle.agentId, buildAgentOptions());
+				agent = await traceCursorAction({ action: "agent_resume", scopeKey, instanceId, agentId: resumeHandle.agentId, runtime: "local" }, () => resumeAgent(resumeHandle.agentId, buildAgentOptions()));
 				effectiveSendState = { ...resumeHandle.sendState };
 				resumed = true;
 			} catch {
@@ -506,7 +514,7 @@ async function createSessionAgentEntry(
 				}
 			}
 		}
-		agent ??= await createAgent(buildAgentOptions());
+		agent ??= await traceCursorAction({ action: "agent_create", scopeKey, instanceId, runtime: "local", forceCreate: params.forceCreate }, () => createAgent(buildAgentOptions()), (created) => ({ agentId: created.agentId }));
 		if (!agent) throw new Error("Cursor SDK agent creation returned no agent");
 		if (!sessionStore) throw new Error("Cursor SDK session store was not opened");
 
@@ -542,6 +550,7 @@ export function invalidateSessionAgent(
 	scopeKey: string = getCursorSessionScopeKey(),
 	options?: { deadTransport?: boolean },
 ): void {
+	appendCursorAction({ action: "agent_invalidate", phase: "decision", scopeKey, reason: options?.deadTransport ? "dead_transport" : "lifecycle" });
 	invalidatedScopeKeys.add(scopeKey);
 	if (options?.deadTransport) deadTransportScopeKeys.add(scopeKey);
 }
@@ -553,6 +562,7 @@ export async function acquireSessionCursorAgent(params: SessionCursorAgentCreate
 	while (true) {
 		assertScopeAcceptsAcquire(scopeKey);
 		if (invalidatedScopeKeys.has(scopeKey)) {
+			appendCursorAction({ action: "agent_reset", phase: "decision", scopeKey, reason: deadTransportScopeKeys.has(scopeKey) ? "dead_transport" : "scope_invalidated" });
 			await disposePoolEntryForScope(scopeKey);
 		}
 
@@ -560,6 +570,7 @@ export async function acquireSessionCursorAgent(params: SessionCursorAgentCreate
 		const state = getSessionCursorAgentPoolState(scopeKey);
 
 		if ((state.status === "ready" || state.status === "busy") && state.poolKey !== poolKey) {
+			appendCursorAction({ action: "agent_reset", phase: "decision", scopeKey, instanceId: state.instanceId, agentId: state.agent.agentId, reason: "pool_key_changed" });
 			await disposePoolEntryForScope(scopeKey);
 			continue;
 		}
@@ -653,8 +664,11 @@ export async function refreshSessionCursorAgentConfig(scopeKey: string = getCurs
 	return "reloaded";
 }
 
-export async function resetSessionCursorAgent(scopeKey: string = getCursorSessionScopeKey()): Promise<void> {
-	await disposePoolEntryForScope(scopeKey);
+export async function resetSessionCursorAgent(
+	scopeKey: string = getCursorSessionScopeKey(),
+	reason: "explicit_reset" | "initial" | "context_divergence" | "incremental_threshold" | "process_resume" | "incremental" = "explicit_reset",
+): Promise<void> {
+	await traceCursorAction({ action: "agent_reset", scopeKey, reason }, () => disposePoolEntryForScope(scopeKey));
 }
 
 export async function disposeSessionCursorAgent(scopeKey: string = getCursorSessionScopeKey()): Promise<void> {

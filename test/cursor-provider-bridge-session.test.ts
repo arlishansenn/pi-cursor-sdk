@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Context } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { __testUtils as actionLog } from "../src/cursor-actions-log.js";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import {
 	resetCursorProviderTestState,
 	mockedCreate,
@@ -44,7 +45,19 @@ import { __testUtils as cursorPiToolBridgeTestUtils } from "../src/cursor-pi-too
 import { __testUtils as nativeToolDisplayTestUtils } from "../src/cursor-native-tool-display-state.js";
 
 describe("streamCursor session agent", () => {
-	beforeEach(resetCursorProviderTestState);
+	let actionDir: string;
+	let actionPath: string;
+	beforeEach(async () => {
+		await resetCursorProviderTestState();
+		actionDir = mkdtempSync(join(tmpdir(), "cursor-provider-actions-"));
+		actionPath = join(actionDir, "actions.jsonl");
+		vi.stubEnv("CURSOR_SDK_ACTIONS_LOG", actionPath);
+	});
+	afterEach(async () => {
+		await actionLog.flush();
+		vi.unstubAllEnvs();
+		rmSync(actionDir, { recursive: true, force: true });
+	});
 
 	it("keeps the session agent alive after a successful text-only turn", async () => {
 		const mockDispose = vi.fn().mockResolvedValue(undefined);
@@ -80,6 +93,9 @@ describe("streamCursor session agent", () => {
 		await collectEvents(stream);
 
 		expect(mockDispose).toHaveBeenCalledTimes(1);
+		await actionLog.flush();
+		const rows = readFileSync(actionPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+		expect(rows.filter((row) => row.action === "agent_send").map((row) => row.phase)).toEqual(["start", "error"]);
 	});
 
 	it("recreates the session agent on the next turn after a send error", async () => {
@@ -252,6 +268,22 @@ describe("streamCursor session agent", () => {
 		const secondPrompt = mockSend.mock.calls[1]?.[0] as { text?: string };
 		expect(secondPrompt.text).toContain("Cursor SDK tool boundary:");
 		expect(secondPrompt.text).toContain("User: Hello edited");
+		await actionLog.flush();
+		const text = readFileSync(actionPath, "utf8");
+		const rows = text.trim().split("\n").map((line) => JSON.parse(line));
+		const resetDecision = rows.findIndex((row) => row.action === "send_plan" && row.reason === "context_divergence");
+		expect(resetDecision).toBeGreaterThan(0);
+		const decisions = rows.filter((row) => row.action === "send_plan");
+		expect(decisions.every((row) => typeof row.turnId === "string")).toBe(true);
+		expect(new Set(decisions.map((row) => row.turnId)).size).toBe(2);
+		const resetTurn = rows.filter((row) => row.turnId === decisions[1].turnId);
+		expect(resetTurn.filter((row) => row.action === "prompt_build" && row.phase === "start")).toHaveLength(2);
+		expect(resetTurn.filter((row) => row.action === "agent_send" && row.phase === "start")).toHaveLength(1);
+		expect(rows.slice(resetDecision).some((row) => row.action === "agent_reset")).toBe(true);
+		expect(rows.filter((row) => row.action === "agent_send").map((row) => row.phase)).toEqual(["start", "success", "start", "success"]);
+		expect(rows.some((row) => row.action === "prompt_build" && row.promptChars > 0)).toBe(true);
+		expect(text).not.toContain("Hello edited");
+		expect(text).not.toContain("test-key");
 	});
 
 	it("recreates the session agent when branch-shrunk context diverges", async () => {

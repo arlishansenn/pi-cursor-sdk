@@ -1,3 +1,4 @@
+import { appendCursorAction, traceCursorAction, traceCursorSyncAction } from "./cursor-actions-log.js";
 import type { Context, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { getCursorConversationMessages, resolveCursorPiContext } from "./cursor-pi-context.js";
 import type { AgentModeOption, ModelSelection, SDKAgent } from "@cursor/sdk";
@@ -155,12 +156,14 @@ async function prepareCursorCloudProviderTurn(
 			includePiBridgeGuidance: false,
 			includePiAskQuestionGuidance: false,
 		};
-		const prompt = buildCursorPrompt(
-			buildCursorCloudPromptContext(context, resolvedConfig.cloud.contextHandoff.value),
+		const promptContext = buildCursorCloudPromptContext(context, resolvedConfig.cloud.contextHandoff.value);
+		appendCursorAction({ action: "send_plan", phase: "decision", runtime: "cloud", model: model.id, ...CLOUD_SEND_PLAN });
+		const prompt = traceCursorSyncAction({ action: "prompt_build", runtime: "cloud", model: model.id, mode: "bootstrap", messageCount: promptContext.messages.length }, () => buildCursorPrompt(
+			promptContext,
 			promptOptions,
-		);
+		), (built) => ({ promptChars: built.text.length, imageCount: built.images.length }));
 		const promptInputTokens = estimateCursorPromptTokens(prompt, promptOptions);
-		const agent = await suppressCursorSdkOutput(() =>
+		const agent = await traceCursorAction({ action: "agent_create", runtime: "cloud", model: model.id }, () => suppressCursorSdkOutput(() =>
 			Agent.create(buildCursorCloudAgentOptions({
 				apiKey: resolvedApiKey,
 				modelSelection: selection,
@@ -168,7 +171,7 @@ async function prepareCursorCloudProviderTurn(
 				resolvedConfig,
 				name: getCursorSessionName(),
 			})),
-		);
+		), (created) => ({ agentId: created.agentId }));
 		cloudAgentForCleanup = agent;
 		if (!recordCursorCloudLifecycleSafely({ agentId: agent.agentId }, resolvedApiKey)) {
 			throw createCursorCloudLifecyclePersistenceError(agent.agentId, "intent", undefined, resolvedApiKey);
@@ -320,10 +323,11 @@ async function prepareCursorLocalProviderTurn(
 		if (sessionAgentLease.created && sessionAgentLease.resumed && sendPlan.mode === "incremental") {
 			sendPlan = { mode: "bootstrap", resetAgent: false, reason: "process_resume" };
 		}
+		appendCursorAction({ action: "send_plan", phase: "decision", scopeKey: sessionAgentScopeKey, agentId: sessionAgentLease.agent.agentId, instanceId: sessionAgentLease.instanceId, model: model.id, runtime: "local", ...sendPlan, incrementalSendCount: sessionAgentLease.sendState.incrementalSendCount });
 		let promptOptions = buildPromptOptions(sendPlan);
 		let prompt = buildCursorSessionSendPrompt(context, promptOptions, sendPlan);
 		if (sendPlan.resetAgent) {
-			await resetSessionCursorAgent(sessionAgentScopeKey);
+			await resetSessionCursorAgent(sessionAgentScopeKey, sendPlan.reason);
 			sessionAgentLease = await acquireSessionCursorAgent({ ...sessionAgentAcquireParams, forceCreate: true });
 			sessionAgentScopeKey = sessionAgentLease.scopeKey;
 			bridgeToolNames = new Set(sessionAgentLease.bridgeRun?.snapshot.tools.map((tool) => tool.mcpToolName) ?? []);

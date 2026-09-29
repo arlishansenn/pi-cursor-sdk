@@ -57,6 +57,7 @@
     "scripts/platform-smoke/artifact-anchored-extract.d.mts",
     "scripts/platform-smoke/artifact-openat-extract.c",
     "scripts/platform-smoke/artifact-secrets.mjs",
+    "scripts/platform-smoke/artifact-secrets.d.mts",
     "scripts/platform-smoke/assertions.mjs",
     "scripts/platform-smoke/artifacts.mjs",
     "scripts/platform-smoke/card-detect.mjs",
