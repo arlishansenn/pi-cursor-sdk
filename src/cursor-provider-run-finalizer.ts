@@ -28,6 +28,7 @@ import type {
 	LocalCursorProviderTurnPrepareResult,
 } from "./cursor-provider-turn-types.js";
 import { applyCursorUsage } from "./cursor-usage-accounting.js";
+import { getCursorActionTurnId } from "./cursor-actions-log.js";
 import { hasUsableText } from "./cursor-record-utils.js";
 import { emitDisplayOnlyTraceBlock } from "./cursor-display-only-trace.js";
 export type CursorTurnTerminalEvent =
@@ -36,6 +37,7 @@ export type CursorTurnTerminalEvent =
 			prepared: CursorProviderTurnPrepareResult;
 			outcome: CursorRunOutcome;
 			displayOnlyTraceBlock?: string;
+			runId?: string;
 	  }
 	| { kind: "error"; prepared: CursorProviderTurnPrepareResult | undefined; error: unknown };
 
@@ -129,7 +131,7 @@ export class CursorRunFinalizer {
 	async applyTerminalEvent(event: CursorTurnTerminalEvent): Promise<void> {
 		if (this.terminalApplied) return;
 		if (event.kind === "direct") {
-			await this.applyDirectOutcome(event.prepared, event.outcome, event.displayOnlyTraceBlock);
+			await this.applyDirectOutcome(event.prepared, event.outcome, event.displayOnlyTraceBlock, event.runId);
 			this.terminalApplied = true;
 			return;
 		}
@@ -169,6 +171,7 @@ export class CursorRunFinalizer {
 		prepared: CursorProviderTurnPrepareResult,
 		outcome: CursorRunOutcome,
 		displayOnlyTraceBlock: string | undefined,
+		runId?: string,
 	): Promise<void> {
 		const { stream, partial, model, context } = this.params.runnerParams;
 		prepared.runtime.turnCoordinator.closeTraceBlock();
@@ -190,6 +193,7 @@ export class CursorRunFinalizer {
 					runtime: prepared.runtimeTarget,
 					turn: prepared.runtime.turnCoordinator.lastSdkTurnUsage,
 					billed: prepared.runtime.billedTurnUsage,
+					correlation: { turnId: getCursorActionTurnId(), runId, mode: prepared.meta.sendPlan.mode },
 				});
 				if (prepared.meta.resumeNotice) emitDisplayOnlyTraceBlock(stream, partial, prepared.meta.resumeNotice);
 				if (displayOnlyTraceBlock) emitDisplayOnlyTraceBlock(stream, partial, displayOnlyTraceBlock);

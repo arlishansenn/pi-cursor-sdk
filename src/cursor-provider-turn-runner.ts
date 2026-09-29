@@ -149,6 +149,7 @@ export class CursorProviderTurnRunner {
 				prepared,
 				outcome: finalized.outcome,
 				displayOnlyTraceBlock: finalized.displayOnlyTraceBlock,
+				runId: send.run.id,
 			});
 		} catch (error) {
 			await runFinalizer.applyTerminalEvent({ kind: "error", prepared, error });

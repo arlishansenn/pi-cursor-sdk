@@ -1,4 +1,4 @@
-import { appendCursorAction, traceCursorAction, traceCursorSyncAction } from "./cursor-actions-log.js";
+import { appendCursorAction, getCursorActionTurnId, traceCursorAction, traceCursorSyncAction } from "./cursor-actions-log.js";
 import type { Context, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { getCursorConversationMessages, resolveCursorPiContext } from "./cursor-pi-context.js";
 import type { AgentModeOption, ModelSelection, SDKAgent } from "@cursor/sdk";
@@ -382,6 +382,8 @@ async function prepareCursorLocalProviderTurn(
 					promptInputTokens,
 					textDeltas,
 					debugRecorder: sdkEventDebug,
+					turnId: getCursorActionTurnId(),
+					mode: sendPlan.mode,
 				})
 			: undefined;
 		if (liveRun) {

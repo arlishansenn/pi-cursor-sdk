@@ -41,6 +41,11 @@ export function withCursorActionTurn<T>(operation: () => T): T {
 	return actionTurn.run({ turnId: randomUUID(), scopeKey: getCursorSessionScopeKey() }, operation);
 }
 
+/** Turn id of the action-log turn this code runs in, for correlating other logs (e.g. usage). */
+export function getCursorActionTurnId(): string | undefined {
+	return actionTurn.getStore()?.turnId;
+}
+
 const processId = randomUUID();
 const defaultPath = join(homedir(), ".pi", "agent", "data", "pi-cursor-sdk", "actions.jsonl");
 let tail = Promise.resolve();
