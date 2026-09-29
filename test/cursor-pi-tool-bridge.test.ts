@@ -267,7 +267,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 			const [request] = await waitForQueuedRequests(run);
 			const historicalSequentialToolCallId = "cursor-pi-bridge-run-1-tool-1";
 
-			expect(run.id).toMatch(/^cursor-pi-bridge-run-[0-9a-f-]{36}$/);
+			expect(run.id).toMatch(/^cursor-pi-bridge-[0-9a-f]{12}$/);
 			expect(request.runId).toBe(run.id);
 			expect(request.piToolCallId).toContain(run.id);
 			expect(request.piToolCallId).not.toBe(historicalSequentialToolCallId);
@@ -612,7 +612,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 		expect(endpointPath).toMatch(/^\/cursor-pi-tool-bridge\/[^/]+\/mcp$/);
 		expect(endpointPath).not.toContain(run.id);
 		expect(endpointToken).not.toBe(run.id);
-		expect(run.id).toMatch(/^cursor-pi-bridge-run-[0-9a-f-]{36}$/);
+		expect(run.id).toMatch(/^cursor-pi-bridge-[0-9a-f]{12}$/);
 		expect(run.id).not.toMatch(/^cursor-pi-bridge-run-\d+$/);
 		expect(registry.getHttpServerAddress()?.address).toBe("127.0.0.1");
 		expect(registry.getEndpointCount()).toBe(1);

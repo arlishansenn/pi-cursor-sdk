@@ -86,7 +86,9 @@ export class CursorPiToolBridgeRunImpl implements CursorPiToolBridgeRun {
 		this.enabled = enabled;
 		this.onToolRequest = options.onToolRequest;
 		this.debugRecorder = options.debugRecorder;
-		this.id = `cursor-pi-bridge-run-${randomUUID()}`;
+		// OpenAI Responses caps call_id at 64 chars; ids minted here are replayed as tool-call ids,
+		// so the run id must stay short (legacy `run-<uuid>` ids hit 65 chars at counter 10).
+		this.id = `cursor-pi-bridge-${randomUUID().replaceAll("-", "").slice(0, 12)}`;
 		this.endpointPath = `${MCP_ENDPOINT_ROOT}/${randomUUID()}/mcp`;
 		this.callTimeoutMs = resolveCursorPiToolBridgeCallTimeoutMs(env);
 		this.knownMcpToolNames = new Set(snapshot.tools.map((tool) => tool.mcpToolName));
