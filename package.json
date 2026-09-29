@@ -24,6 +24,7 @@
   "files": [
     "dist",
     "shared",
+    "patch-sdk.mjs",
     "src",
     "scripts/build.mjs",
     "scripts/prepare.mjs",
@@ -123,6 +124,8 @@
     "check:compat": "npm run build && npm run verify && node --test test/native-provider.test.mjs",
     "build": "node ./scripts/build.mjs",
     "prepare": "node ./scripts/prepare.mjs",
+    "postinstall": "node ./patch-sdk.mjs",
+    "test:patch-sdk": "node --test patch-sdk.test.mjs",
     "typecheck": "npm run typecheck:src && npm run typecheck:tests && npm run typecheck:replay-compile",
     "typecheck:src": "tsc --noEmit",
     "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
