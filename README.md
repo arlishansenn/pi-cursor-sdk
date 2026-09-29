@@ -525,6 +525,10 @@ Use `npm run debug:provider-events` to capture the same `onDelta`/`onStep` paylo
 
 See [Cursor testing lessons](docs/cursor-testing-lessons.md#cursor-sdk-event-capture-probe) for usage, artifact layout, and safety notes.
 
+### Usage log
+
+Every applied SDK turn usage appends one JSONL line (numbers and identifiers only — never prompt text, tool args, or keys) to `~/.pi/agent/data/pi-cursor-sdk/usage.jsonl` by default. Each line carries `ts`, pi `session` file name, `model`, `provider`, `runtime`, `source` (`turn` = local turn-ended usage, `billed` = `Agent.getUsage()` delta, `estimate` = character approximation when the SDK reported nothing), and the raw SDK token fields `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, `totalTokens` — `inputTokens` is the full prompt and the cache fields partition it, so cache hit share is `cacheReadTokens / inputTokens` offline. Override the destination with `CURSOR_SDK_USAGE_LOG=<path>`; disable with `CURSOR_SDK_USAGE_LOG=0`. Failures to write are swallowed and never affect the provider turn.
+
 ## Fallback models
 
 If startup has no stored `/login` key or `CURSOR_API_KEY`, model discovery fails, or discovery returns no models, the extension registers a bundled fallback snapshot of the latest reviewed Cursor SDK model catalog and notifies interactive users when possible. Pi CLI `--api-key` remains available to provider turns but is not parsed independently during startup discovery.

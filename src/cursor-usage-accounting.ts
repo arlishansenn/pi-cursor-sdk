@@ -8,6 +8,8 @@ import {
 } from "./context.js";
 import { asRecord, getNumber } from "./cursor-record-utils.js";
 import type { CursorRuntime } from "./cursor-config.js";
+import { getCursorSessionFile } from "./cursor-session-scope.js";
+import { appendCursorUsageLog, type CursorUsageLogSource } from "./cursor-usage-log.js";
 
 export interface CursorUsagePromptOptions extends CursorPromptOptions {
 	maxInputTokens: number;
@@ -201,6 +203,11 @@ function applyResolvedCursorOccupancy(
 	applyCursorOccupancyEstimate(partial, model, context);
 }
 
+function cursorUsageLogSession(): string | undefined {
+	const sessionFile = getCursorSessionFile();
+	return sessionFile ? sessionFile.split("/").pop() : undefined;
+}
+
 export function applyCursorUsage(
 	partial: AssistantMessage,
 	model: Model<Api>,
@@ -210,16 +217,35 @@ export function applyCursorUsage(
 ): void {
 	const billed = sdkUsage?.billed;
 	const localTurn = sdkUsage?.runtime === "local" ? sdkUsage.turn : undefined;
+	let logSource: CursorUsageLogSource;
+	let logUsage: CursorSdkTurnUsage | undefined;
 	if (billed && isCursorSdkUsagePartitionSafe(billed, model)) {
 		applyCursorSdkUsage(partial, billed);
 		applyResolvedCursorOccupancy(partial, model, context, localTurn);
-		return;
-	}
-	// Only local raw turn-ended usage has a captured full-prompt/cache-partition occupancy contract.
-	if (localTurn && isCursorSdkUsageSafeForPiMessage(localTurn, model)) {
+		logSource = "billed";
+		logUsage = billed;
+	} else if (localTurn && isCursorSdkUsageSafeForPiMessage(localTurn, model)) {
+		// Only local raw turn-ended usage has a captured full-prompt/cache-partition occupancy contract.
 		applyCursorSdkUsage(partial, localTurn);
 		applyResolvedCursorOccupancy(partial, model, context, localTurn);
-		return;
+		logSource = "turn";
+		logUsage = localTurn;
+	} else {
+		applyCursorApproximateUsage(partial, model, context, sessionInputTokens);
+		logSource = "estimate";
 	}
-	applyCursorApproximateUsage(partial, model, context, sessionInputTokens);
+	appendCursorUsageLog({
+		ts: new Date().toISOString(),
+		session: cursorUsageLogSession(),
+		model: model.id,
+		provider: model.provider,
+		runtime: sdkUsage?.runtime ?? "local",
+		source: logSource,
+		inputTokens: logUsage ? logUsage.inputTokens : partial.usage.input,
+		outputTokens: logUsage ? logUsage.outputTokens : partial.usage.output,
+		cacheReadTokens: logUsage ? logUsage.cacheReadTokens : partial.usage.cacheRead,
+		cacheWriteTokens: logUsage ? logUsage.cacheWriteTokens : partial.usage.cacheWrite,
+		// ponytail: token mix only; add costCents from raw Agent.getUsage() at turn finalize when dollar billing matters (plan usage reports chargedCents=0).
+		totalTokens: logUsage ? logUsage.inputTokens + logUsage.outputTokens : partial.usage.totalTokens,
+	});
 }
