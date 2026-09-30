@@ -41,16 +41,16 @@ export type CursorTurnTerminalEvent =
 	  }
 	| { kind: "error"; prepared: CursorProviderTurnPrepareResult | undefined; error: unknown };
 
-function applyLiveRunOutcome(
+async function applyLiveRunOutcome(
 	outcome: CursorRunOutcome,
 	prepared: LocalCursorProviderTurnPrepareResult & { runtime: LiveCursorProviderTurnRuntime },
 	context: CursorProviderTurnRunnerParams["context"],
-): void {
+): Promise<void> {
 	if (prepared.runtime.liveRun.disposed) return;
 	const { liveRun } = prepared.runtime;
 	switch (classifyCursorRunEmission(outcome)) {
 		case "finished":
-			prepared.lifecycle.commitSend(context, prepared.meta.bootstrap);
+			await prepared.lifecycle.commitSend(context, prepared.meta.bootstrap);
 			if (prepared.meta.resumeNotice) liveRun.resumeNotice = prepared.meta.resumeNotice;
 			cursorLiveRuns.markFinished(liveRun, outcome.kind === "finished" ? outcome.finalText : "");
 			break;
@@ -109,7 +109,7 @@ export class CursorRunFinalizer {
 			contextWindowAgentId: liveRun.agent.agentId,
 		})
 			.then(async (finalized) => {
-				applyLiveRunOutcome(finalized.outcome, prepared, runnerParams.context);
+				await applyLiveRunOutcome(finalized.outcome, prepared, runnerParams.context);
 			})
 			.catch((error: unknown) => {
 				this.safeCleanup(() => discardIncompleteTools({ status: "error" }));
@@ -185,7 +185,7 @@ export class CursorRunFinalizer {
 				this.pushTerminalError(partial, "error", outcome.kind === "error" ? outcome.errorMessage : "Cursor SDK run failed.");
 				break;
 			case "finished":
-				prepared.lifecycle.commitSend(context, prepared.meta.bootstrap);
+				await prepared.lifecycle.commitSend(context, prepared.meta.bootstrap);
 				prepared.runtime.turnCoordinator.flushText(
 					outcome.kind === "finished" && hasUsableText(outcome.finalText) ? [outcome.finalText] : [],
 				);

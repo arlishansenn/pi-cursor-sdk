@@ -86,8 +86,8 @@ function parseArgs(argv) {
 	return out;
 }
 
-function platformForTarget(target) {
-	return target === "windows-native" ? "powershell" : "posix";
+function platformForTarget(_target) {
+	return "posix";
 }
 
 function commandName(name) {

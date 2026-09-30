@@ -3,7 +3,6 @@ import type { Context } from "@earendil-works/pi-ai";
 import { computeCursorContextFingerprint } from "../src/context.js";
 import {
 	buildCursorSessionSendPrompt,
-	MAX_COMPLETED_INCREMENTAL_SENDS_BEFORE_REBOOTSTRAP,
 	planCursorSessionSend,
 } from "../src/cursor-session-send-policy.js";
 import { getCursorToolTailGuardText } from "../src/context.js";
@@ -21,7 +20,7 @@ describe("cursor-session-send-policy", () => {
 		expect(plan).toEqual({ mode: "bootstrap", resetAgent: false, reason: "initial" });
 	});
 
-	it("plans incremental sends below the rebootstrap threshold", () => {
+	it("keeps incremental sends after many completed turns when context still matches", () => {
 		const priorContext: Context = {
 			messages: [{ role: "user", content: "Hello", timestamp: 1 }],
 		};
@@ -34,36 +33,13 @@ describe("cursor-session-send-policy", () => {
 		const sendState = {
 			bootstrapped: true,
 			contextFingerprint: computeCursorContextFingerprint(priorContext),
-			incrementalSendCount: MAX_COMPLETED_INCREMENTAL_SENDS_BEFORE_REBOOTSTRAP - 1,
+			incrementalSendCount: 20,
 		};
 
 		expect(planCursorSessionSend(sendState, context)).toEqual({
 			mode: "incremental",
 			resetAgent: false,
 			reason: "incremental",
-		});
-	});
-
-	it("plans agent reset and bootstrap at the incremental threshold", () => {
-		const priorContext: Context = {
-			messages: [{ role: "user", content: "Hello", timestamp: 1 }],
-		};
-		const context: Context = {
-			messages: [
-				{ role: "user", content: "Hello", timestamp: 1 },
-				{ role: "user", content: "Follow up", timestamp: 2 },
-			],
-		};
-		const sendState = {
-			bootstrapped: true,
-			contextFingerprint: computeCursorContextFingerprint(priorContext),
-			incrementalSendCount: MAX_COMPLETED_INCREMENTAL_SENDS_BEFORE_REBOOTSTRAP,
-		};
-
-		expect(planCursorSessionSend(sendState, context)).toEqual({
-			mode: "bootstrap",
-			resetAgent: true,
-			reason: "incremental_threshold",
 		});
 	});
 
@@ -77,7 +53,7 @@ describe("cursor-session-send-policy", () => {
 		const sendState = {
 			bootstrapped: true,
 			contextFingerprint: computeCursorContextFingerprint(priorContext),
-			incrementalSendCount: 2,
+			incrementalSendCount: 21,
 		};
 
 		expect(planCursorSessionSend(sendState, editedContext)).toEqual({

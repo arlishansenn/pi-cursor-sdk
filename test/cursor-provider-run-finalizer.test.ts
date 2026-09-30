@@ -55,12 +55,12 @@ describe("CursorRunFinalizer", () => {
 				storeIdentity: { version: 1, stateRoot: "/tmp/store" },
 				sendState: { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0 },
 				created: false,
-				commitSend: () => {},
+				commitSend: async () => {},
 				trackRunCompletion,
 			} satisfies SessionCursorAgentLease,
 			restoreCursorSdkOutputFilter: () => {},
 			lifecycle: {
-				commitSend: () => {},
+				commitSend: async () => {},
 				trackRunCompletion,
 				abandon: async () => {},
 				dispose: async () => {},
@@ -178,14 +178,14 @@ describe("CursorRunFinalizer", () => {
 				storeIdentity: { version: 1, stateRoot: "/tmp/store" },
 				sendState: { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0 },
 				created: true,
-				commitSend: () => {
+				commitSend: async () => {
 					throw new Error("commit failed before terminal event");
 				},
 				trackRunCompletion: () => {},
 			} satisfies SessionCursorAgentLease,
 			restoreCursorSdkOutputFilter: () => {},
 			lifecycle: {
-				commitSend: () => {
+				commitSend: async () => {
 					throw new Error("commit failed before terminal event");
 				},
 				trackRunCompletion: () => {},
@@ -286,12 +286,12 @@ describe("CursorRunFinalizer", () => {
 				storeIdentity: { version: 1, stateRoot: "/tmp/store" },
 				sendState: { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0 },
 				created: true,
-				commitSend: () => {},
+				commitSend: async () => {},
 				trackRunCompletion: () => {},
 			} satisfies SessionCursorAgentLease,
 			restoreCursorSdkOutputFilter: () => {},
 			lifecycle: {
-				commitSend: () => {},
+				commitSend: async () => {},
 				trackRunCompletion: () => {},
 				abandon: async () => {},
 				dispose: async () => {},

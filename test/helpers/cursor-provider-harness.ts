@@ -51,6 +51,7 @@ import { __testUtils as cursorStateTestUtils } from "../../src/cursor-state.js";
 import { __testUtils as cursorHttp1TestUtils } from "../../src/cursor-http1.js";
 import { CURSOR_HTTP1_ENV } from "../../src/cursor-config.js";
 import { streamCursor, __testUtils as cursorProviderTestUtils } from "../../src/cursor-provider.js";
+import { resetCursorLiveRunDrainForTests } from "../../src/cursor-provider-live-run-drain.js";
 import { registerCursorPiToolBridge, __testUtils as cursorPiToolBridgeTestUtils } from "../../src/cursor-pi-tool-bridge.js";
 import { __testUtils as modelDiscoveryTestUtils } from "../../src/model-discovery.js";
 import { __testUtils as nativeToolDisplayTestUtils } from "../../src/cursor-native-tool-display-state.js";
@@ -109,6 +110,33 @@ export function asMockSdkAgent(
 		getUsage: vi.fn().mockResolvedValue(undefined),
 		...agent,
 	} as MockSdkAgent;
+}
+
+let defaultSendGate: Promise<void> | undefined;
+
+export function holdDefaultCursorAgentSend(): () => void {
+	let release = (): void => {};
+	defaultSendGate = new Promise<void>((resolve) => {
+		release = () => {
+			defaultSendGate = undefined;
+			resolve();
+		};
+	});
+	return release;
+}
+
+export function installDefaultCursorAgentMock(): void {
+	mockedCreate.mockImplementation(() => Promise.resolve(asMockSdkAgent({
+		send: vi.fn().mockImplementation(async () => {
+			await defaultSendGate;
+			return asMockCursorRun({
+				id: "run-default",
+				agentId: "agent-1",
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: "run-default", status: "finished", result: "ok" }),
+			});
+		}),
+	})));
 }
 
 export function mockCreatedAgent(
@@ -359,6 +387,7 @@ export const cursorModelItems: ModelListItem[] = [
 ];
 
 export async function resetCursorProviderTestState(): Promise<void> {
+	resetCursorLiveRunDrainForTests();
 	vi.useRealTimers();
 	installCursorSessionStoreMock();
 	cloudLifecycleTestUtils.reset();
@@ -392,6 +421,7 @@ export async function resetCursorProviderTestState(): Promise<void> {
 	delete process.env[CURSOR_HTTP1_ENV];
 	process.env.PI_CURSOR_TOOL_MANIFEST = "0";
 	expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
+	resetCursorLiveRunDrainForTests();
 	cursorProviderTestUtils.resetCursorNativeReplayIdleDisposeMs();
 	await cursorProviderTestUtils.resetSessionCursorAgents();
 	cursorProviderTestUtils.resetSessionTurnQueue();
@@ -402,7 +432,7 @@ export async function resetCursorProviderTestState(): Promise<void> {
 	cursorHttp1TestUtils.reset();
 	nativeToolDisplayTestUtils.reset();
 	modelDiscoveryTestUtils.registerModelItems(cursorModelItems);
-	mockCreatedAgent({ send: vi.fn() });
+	installDefaultCursorAgentMock();
 	mockedMessagesList.mockResolvedValue([]);
 	mockedCreateAgentPlatform.mockResolvedValue(createMockAgentPlatform());
 }

@@ -11,6 +11,7 @@ import { platformSmokeSuiteEvidence, prunePlatformSmokeArtifacts, redactSecrets,
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const repoRoot = resolve(__dirname, "..");
+delete process.env.NODE_OPTIONS;
 
 const require = createRequire(import.meta.url);
 let config;
@@ -22,7 +23,7 @@ try {
 }
 
 function printHelp() {
-	const targetList = (config?.requiredTargets ?? ["macos", "ubuntu", "windows-native"]).join(",");
+	const targetList = (config?.requiredTargets ?? ["macos", "ubuntu"]).join(",");
 	const suiteList = (config?.requiredSuites ?? []).join(",");
 	console.log(`Usage: node scripts/platform-smoke.mjs <command> [options]
 
@@ -52,10 +53,6 @@ Environment:
   PLATFORM_SMOKE_MAC_USER         macOS SSH user (default: \$USER)
   PLATFORM_SMOKE_MAC_WORK_ROOT    macOS work root
   PLATFORM_SMOKE_UBUNTU_IMAGE     Ubuntu container image
-  PLATFORM_SMOKE_WINDOWS_VM       Parallels source VM override (default from config)
-  PLATFORM_SMOKE_WINDOWS_SNAPSHOT Snapshot override (default from config)
-  PLATFORM_SMOKE_WINDOWS_USER     Windows SSH user override (default: \$USER)
-  PLATFORM_SMOKE_WINDOWS_NATIVE_WORK_ROOT  Windows native work root override (default from config)
 `);
 }
 

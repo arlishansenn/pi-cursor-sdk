@@ -471,8 +471,6 @@ export function buildPlatformBuildCommand(targetName, packageName = "pi-cursor-s
 		lines.push("  exit 1");
 		lines.push("fi");
 		lines.push('echo "PLATFORM_BUILD_OK"');
-	} else {
-		lines.push(`powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\platform-smoke\\platform-build-windows.ps1 -PackageName ${packageName} -NodeValidationMajor ${nodeValidationMajor}`);
 	}
 	return lines.join("\n");
 }

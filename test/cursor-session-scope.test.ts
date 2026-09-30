@@ -7,8 +7,10 @@ import {
 	getCursorSessionCwd,
 	getCursorSessionName,
 	getCursorSessionProjectTrusted,
+	getCursorSessionScopeKey,
 	MAX_CURSOR_SESSION_NAME_LENGTH,
 	registerCursorSessionScope,
+	runWithCursorRequestSession,
 } from "../src/cursor-session-scope.js";
 import { createEventHarness } from "./helpers/pi-harness.js";
 
@@ -19,6 +21,11 @@ describe("cursor-session-scope cwd", () => {
 
 	it("falls back to process.cwd() before session_start", () => {
 		expect(getCursorSessionCwd()).toBe(process.cwd());
+	});
+
+	it("masks an enclosing request id when the nested call omits one", () => {
+		const seen = runWithCursorRequestSession("A", () => runWithCursorRequestSession(undefined, () => getCursorSessionScopeKey()));
+		expect(seen).toBe(cursorSessionScopeTestUtils.ANONYMOUS_SESSION_SCOPE_KEY);
 	});
 
 	it("syncs cwd from session_start", async () => {
@@ -99,6 +106,65 @@ describe("cursor-session-scope cwd", () => {
 		expect(MAX_CURSOR_SESSION_NAME_LENGTH).toBe(100);
 		expect(getCursorSessionName()).toHaveLength(MAX_CURSOR_SESSION_NAME_LENGTH);
 		expect(getCursorSessionName()?.endsWith("…")).toBe(true);
+	});
+
+	it("opens the summarization window on session_before_compact and closes it on session_compact", async () => {
+		const pi = createEventHarness();
+		registerCursorSessionScope(pi);
+
+		await pi.invokeEvent("session_before_compact", {
+			type: "session_before_compact",
+			preparation: { tokensToSummarize: 10 } as never,
+			branchEntries: [],
+			reason: "manual",
+			willRetry: false,
+			signal: new AbortController().signal,
+		});
+		expect(cursorSessionScopeTestUtils.isSummarizationWindow()).toBe(true);
+
+		await pi.invokeEvent("session_compact", {
+			type: "session_compact",
+			reason: "manual",
+			fromExtension: false,
+			willRetry: false,
+			compactionEntry: { id: "c1", type: "compaction", summary: "s", firstKeptEntryId: "e1", tokensBefore: 10, fromExtension: false } as never,
+		});
+		expect(cursorSessionScopeTestUtils.isSummarizationWindow()).toBe(false);
+	});
+
+	it("closes the summarization window on session_compact_failed", async () => {
+		const pi = createEventHarness();
+		registerCursorSessionScope(pi);
+
+		await pi.invokeEvent("session_before_compact", {
+			type: "session_before_compact",
+			preparation: { tokensToSummarize: 10 } as never,
+			branchEntries: [],
+			reason: "threshold",
+			willRetry: false,
+			signal: new AbortController().signal,
+		});
+		expect(cursorSessionScopeTestUtils.isSummarizationWindow()).toBe(true);
+
+		await pi.invokeEvent("session_compact_failed", {
+			type: "session_compact_failed",
+			reason: "threshold",
+			errorMessage: "boom",
+			aborted: false,
+			willRetry: false,
+			fromExtension: false,
+		});
+		expect(cursorSessionScopeTestUtils.isSummarizationWindow()).toBe(false);
+	});
+
+	it("resets the summarization window on session_start", async () => {
+		const pi = createEventHarness();
+		registerCursorSessionScope(pi);
+		cursorSessionScopeTestUtils.beginSummarizationWindow();
+
+		await pi.runSessionStart({ sessionManager: { getSessionName: vi.fn(() => "After") } });
+
+		expect(cursorSessionScopeTestUtils.isSummarizationWindow()).toBe(false);
 	});
 
 	it("updates cwd on subsequent session_start events", async () => {

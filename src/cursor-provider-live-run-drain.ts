@@ -434,6 +434,8 @@ export async function drainCursorLiveRunTurn(
 	}
 }
 
+let beforeLiveRunDrain: (() => Promise<void> | void) | undefined;
+
 export async function drainExistingCursorLiveRunBeforeSend(
 	stream: AssistantMessageEventStream,
 	partial: AssistantMessage,
@@ -444,6 +446,7 @@ export async function drainExistingCursorLiveRunBeforeSend(
 ): Promise<LiveRunPreSendOutcome> {
 	turnDebugRecorder?.recordDrainEvent("pre_send_start", {});
 	while (true) {
+		beforeLiveRunDrain?.();
 		const run = getPendingCursorLiveRun(context) ?? getActiveCursorLiveRunForCurrentScope();
 		if (!run || run.disposed) {
 			turnDebugRecorder?.recordDrainEvent("pre_send_end", { outcome: "continue_send", reason: "no_pending_run" });
@@ -501,13 +504,20 @@ export function resetCursorNativeReplayIdleDisposeMs(): void {
 }
 
 export async function releaseAllPendingCursorLiveRunsForTests(): Promise<void> {
-	while (cursorLiveRuns.count() > 0) {
-		const run = cursorLiveRuns.getActiveForScope();
-		if (!run) break;
-		const before = cursorLiveRuns.count();
+	for (const run of cursorLiveRuns.list()) {
 		await cursorLiveRuns.release(run);
-		if (cursorLiveRuns.count() >= before) break;
 	}
 }
 
 export { hasTrailingUserMessagesAfterToolResults };
+
+export function resetCursorLiveRunDrainForTests(): void {
+	beforeLiveRunDrain = undefined;
+}
+
+export const __testUtils = {
+	setBeforeLiveRunDrain(hook: (() => Promise<void> | void) | undefined): void {
+		beforeLiveRunDrain = hook;
+	},
+	reset: resetCursorLiveRunDrainForTests,
+};

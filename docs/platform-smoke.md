@@ -1,6 +1,6 @@
 # Platform Smoke Gate
 
-Status: current local-runtime release gate for Cursor provider/runtime changes. Cloud-runtime changes also require the separate paid `npm run smoke:cloud` gate. The Crabbox runner, packed-install platform-build suite, and real live PTY/ConPTY suite runner are implemented for macOS, Ubuntu, and Windows native targets with one-lease-per-target orchestration.
+Status: current local-runtime release gate for Cursor provider/runtime changes. Cloud-runtime changes also require the separate paid `npm run smoke:cloud` gate. The Crabbox runner, packed-install platform-build suite, and real live PTY suite runner are implemented for macOS and Ubuntu targets with one-lease-per-target orchestration.
 
 Detailed detector, registry, command-rendering, implementation-history, replacement, and portability reference: [Platform Smoke Implementation Reference](./platform-smoke-implementation.md).
 
@@ -38,7 +38,7 @@ npm run smoke:cloud
 
 Per-target commands exist for diagnosis and iteration. They are not additional release-gate commands because requiring each per-target command plus `all` doubles Cursor token use.
 
-No partial adoption exists. The release evidence must include macOS, Ubuntu, and Windows native passing through `smoke:platform:all`.
+No partial adoption exists. The release evidence must include macOS and Ubuntu passing through `smoke:platform:all`.
 
 ## Non-negotiable constraints
 
@@ -73,7 +73,6 @@ Required Crabbox providers:
 
 - `local-container` for Ubuntu.
 - `ssh` static localhost for macOS. Static localhost leases use Crabbox's shared `static_localhost` lease id, so the runner passes `--reclaim` during macOS warmup to claim that lease for this repository before running suites.
-- `parallels` for Windows native.
 
 ## Architecture
 
@@ -102,7 +101,7 @@ platform-smoke.config.mjs
   -> artifact manifest
 ```
 
-Rendering is host-side. Targets capture the real ANSI stream; the macOS host renders it and captures per-evidence screenshots from the rendered xterm DOM. This keeps the renderer identical across macOS, Ubuntu, and Windows native and avoids browser dependency drift inside test targets.
+Rendering is host-side. Targets capture the real ANSI stream; the macOS host renders it and captures per-evidence screenshots from the rendered xterm DOM. This keeps the renderer identical across macOS and Ubuntu and avoids browser dependency drift inside test targets.
 
 ## Target session model
 
@@ -152,9 +151,9 @@ Runtime budget is part of the contract:
 | --- | --- | --- | --- |
 | `macos` | `ssh` static localhost | native macOS shell | PTY ANSI capture and host-side render |
 | `ubuntu` | `local-container` | Docker Ubuntu container | PTY ANSI capture and host-side render |
-| `windows-native` | `parallels` | Windows 11 clone, native PowerShell/Node | ConPTY ANSI capture and host-side render |
 
-Ubuntu is covered as its own local-container target, and Windows native remains a full visual TUI target.
+
+Ubuntu is covered as its own local-container target.
 
 ## Required cloud smoke gate
 
@@ -181,11 +180,11 @@ Before removing successful raw artifacts, the gate atomically replaces `docs/evi
 
 `npm run smoke:cloud:context` (`--context-matrix`) remains optional, separate proof for fresh-versus-bootstrap context handoff. `fresh` must answer `NO_MARKER`; `bootstrap` must recall the marker. Its agents receive the same archive, delete, `Agent.get` not-found/404, and archived-inclusive list-exclusion verification, but it does not create a GitHub repository or replace the required-matrix evidence summary.
 
-This cloud gate does not replace the local macOS/Ubuntu/Windows `smoke:platform:all` gate.
+This cloud gate does not replace the local macOS/Ubuntu `smoke:platform:all` gate.
 
 ## Focused local resume smoke
 
-The platform matrix includes the required local-resume lanes: restart, safety, tool-surface, abort, tree, copy/switch, fallback, compaction, default/opt-out proof, and recorded-ID-only cleanup. Platform lanes run those scripts against the target's shared packed package path, then copy each lane's session JSONL, Cursor SDK debug metadata, runtime-launch record, and other bounded smoke artifacts into its canonical platform suite directory. The same scripts still load the source checkout by default when run directly as focused host-local inner-loop checks. Windows uses the intentionally short target-side evidence component `lr` so the Cursor SDK's derived SQLite path remains below legacy `MAX_PATH`; every suite removes and verifies that directory before use, failing closed on stale or locked evidence.
+The platform matrix includes the required local-resume lanes: restart, safety, tool-surface, abort, tree, copy/switch, fallback, compaction, default/opt-out proof, and recorded-ID-only cleanup. Platform lanes run those scripts against the target's shared packed package path, then copy each lane's session JSONL, Cursor SDK debug metadata, runtime-launch record, and other bounded smoke artifacts into its canonical platform suite directory. The same scripts still load the source checkout by default when run directly as focused host-local inner-loop checks. Every suite removes and verifies its evidence directory before use, failing closed on stale or locked evidence.
 
 The smoke starts one sessionful local Cursor run with local resume enabled by default, records the SDK agent id from provider debug metadata, restarts pi against the same session, asks for the remembered marker, and verifies:
 
@@ -232,7 +231,6 @@ scripts/platform-smoke/jsonl-text.mjs
 scripts/platform-smoke/live-suite-runner.mjs
 scripts/platform-smoke/local-resume-runner.mjs
 scripts/platform-smoke/local-resume-suites.mjs
-scripts/platform-smoke/platform-build-windows.ps1
 scripts/platform-smoke/pty-capture.mjs
 scripts/platform-smoke/render-ansi.mjs
 scripts/platform-smoke/scenarios.mjs
@@ -258,8 +256,7 @@ Package scripts:
   "smoke:platform:doctor": "node scripts/platform-smoke.mjs doctor",
   "smoke:platform:macos": "node scripts/platform-smoke.mjs run --target macos",
   "smoke:platform:ubuntu": "node scripts/platform-smoke.mjs run --target ubuntu",
-  "smoke:platform:windows-native": "node scripts/platform-smoke.mjs run --target windows-native",
-  "smoke:platform:all": "npm run smoke:platform:doctor && node scripts/platform-smoke.mjs run --target macos,ubuntu,windows-native",
+  "smoke:platform:all": "npm run smoke:platform:doctor && node scripts/platform-smoke.mjs run --target macos,ubuntu",
   "smoke:cloud": "node scripts/cloud-runtime-smoke.mjs",
   "smoke:cloud:context": "node scripts/cloud-runtime-smoke.mjs --context-matrix",
   "smoke:local-resume": "node scripts/local-resume-smoke.mjs",
@@ -295,7 +292,7 @@ export default {
     maxAgeDays: 14,
     preserveRecentHours: 24,
   },
-  requiredTargets: ["macos", "ubuntu", "windows-native"],
+  requiredTargets: ["macos", "ubuntu"],
   requiredSuites: [
     "platform-build",
     "cursor-native-visual-matrix",
@@ -311,17 +308,10 @@ export default {
   ubuntuContainerImage: "pi-cursor-sdk-platform-node:24.21-root",
   ubuntuContainerBaseImage: "cimg/node:24.21",
   nodeValidationMajor: 24,
-  windowsParallels: {
-    sourceVm: "pi-extension-windows-template",
-    snapshot: "crabbox-ready",
-    workRoot: "C:\\crabbox\\pi-cursor-sdk",
-  },
 };
 ```
 
-`ubuntuContainerBaseImage` is `cimg/node:24.21`, the Ubuntu 24.04 Node 24 base with the current glibc baseline for native test dependencies. The runner builds the local `ubuntuContainerImage` wrapper with only `USER root` changed before warmup because Crabbox 0.36.0 must install SSH/Git/rsync/curl during bootstrap and `cimg/node` defaults to an unprivileged user. An explicit `PLATFORM_SMOKE_UBUNTU_IMAGE` bypasses that build and must already support Crabbox bootstrap. Package 0.4.0 requires Node 24+, and this gate validates Node 24 on macOS, Ubuntu, and Windows.
-
-`windowsParallels` records this repo's default shared Windows template contract. Environment overrides may point at a temporary candidate template during infrastructure work, but release runs should use the shared `pi-extension-windows-template` / `crabbox-ready` baseline unless this document is updated.
+`ubuntuContainerBaseImage` is `cimg/node:24.21`, the Ubuntu 24.04 Node 24 base with the current glibc baseline for native test dependencies. The runner builds the local `ubuntuContainerImage` wrapper with only `USER root` changed before warmup because Crabbox 0.36.0 must install SSH/Git/rsync/curl during bootstrap and `cimg/node` defaults to an unprivileged user. An explicit `PLATFORM_SMOKE_UBUNTU_IMAGE` bypasses that build and must already support Crabbox bootstrap. Package 0.4.0 requires Node 24+, and this gate validates Node 24 on macOS and Ubuntu.
 
 `artifactRetention` bounds local host evidence growth under `artifactRoot`. `smoke:platform:run` prunes only top-level directories named `run-<timestamp>-<suffix>` before starting a new matrix; it leaves non-run/manual directories untouched and preserves directories newer than `preserveRecentHours` to avoid deleting evidence from active or very recent runs. Doctor is read-only and does not prune artifacts.
 
@@ -338,12 +328,6 @@ PLATFORM_SMOKE_MAC_USER="$USER"
 PLATFORM_SMOKE_MAC_WORK_ROOT="/Users/$USER/crabbox/pi-cursor-sdk"
 # Optional prebuilt replacement; bypasses the configured local root-wrapper build.
 PLATFORM_SMOKE_UBUNTU_IMAGE="registry.example.com/ubuntu-node24-crabbox:latest"
-
-# Optional Parallels overrides; defaults come from platform-smoke.config.mjs.
-PLATFORM_SMOKE_WINDOWS_VM="pi-extension-windows-template"
-PLATFORM_SMOKE_WINDOWS_SNAPSHOT="crabbox-ready"
-PLATFORM_SMOKE_WINDOWS_USER="<windows-ssh-user>"
-PLATFORM_SMOKE_WINDOWS_NATIVE_WORK_ROOT="C:\\crabbox\\pi-cursor-sdk"
 
 # Required for live suites; doctor fails before spending Cursor tokens if absent.
 CURSOR_API_KEY="..."
@@ -406,69 +390,27 @@ Required:
 - Required local image exists with Node 24+, npm, OpenSSH prerequisites, `git`, `rsync`, `curl`, `sudo`, `python3`, `tar`, and `ripgrep`.
 - `node-pty` self-test passes in the container.
 
-### Windows template VM
-
-The user's daily Windows VM is not the long-term test target. Use the shared pi-extension Parallels template unless this project documents a replacement with equal evidence:
-
-```text
-source VM: pi-extension-windows-template
-snapshot: crabbox-ready
-work root: C:\\crabbox\\pi-cursor-sdk
-```
-
-Template requirements:
-
-- Windows 11.
-- Parallels Tools installed.
-- OpenSSH Server enabled.
-- Stable SSH user configured.
-- Node 24+ and npm installed for native Windows.
-- Git for Windows installed.
-- PowerShell available.
-- `tar` available in native Windows PATH.
-- `node-pty` self-test passes in native Windows.
-- Source VM is powered off.
-- Snapshot named `crabbox-ready` exists.
-- The template contains reusable platform tools only; no repo checkout, `.pi` state, Cursor API key, browser auth, smoke artifacts, or temp files.
-
-Crabbox Parallels creates linked clones from the powered-off snapshot. The source template VM is never used directly for smoke runs. If a run has to install a missing global tool or browser on every Windows clone, treat that as template drift and refresh the shared template instead of making the per-run fallback normal.
-
-### Windows native
-
-Required native probe:
-
-```powershell
-node --version
-npm --version
-git --version
-tar --version
-```
-
 ## Doctor command
 
-`npm run smoke:platform:doctor` runs before any token-spending suite. The canonical `npm run smoke:platform:all` script enforces doctor first before it starts macOS, Ubuntu, or Windows suites.
+`npm run smoke:platform:doctor` runs before any token-spending suite. The canonical `npm run smoke:platform:all` script enforces doctor first before it starts macOS and Ubuntu suites.
 
 Doctor checks:
 
 1. Required auth is present and optional target overrides resolve against config defaults.
 2. Homebrew `crabbox` is available on PATH, or `PLATFORM_SMOKE_CRABBOX` points at an executable override.
 3. Crabbox build matches the configured baseline.
-4. Crabbox provider registry includes `local-container`, `ssh`, and `parallels`.
+4. Crabbox provider registry includes `local-container` and `ssh`.
 5. `crabbox doctor --provider local-container --target linux --json` passes.
 6. Docker runtime is active.
 7. Crabbox macOS static SSH doctor with `--doctor-probe-ssh` passes, and the localhost SSH probe sees Node, npm, Git, rsync, and tar.
-8. `prlctl` exists.
-9. Windows source VM exists.
-10. Windows source snapshot exists.
-11. Windows source VM is stopped and the configured snapshot is power-off/forkable for linked clones.
-12. Disposable Windows native clone probe passes and sees Node, npm, Git, tar, and the configured SSH user.
-13. Node 24+ is available on every target.
-14. npm is available on every target.
-15. `git` is available on every target.
-16. `rsync` is available on macOS and Ubuntu.
-17. `tar` is available on macOS and native Windows.
-18. `node-pty` self-test passes on every target.
-19. Target pi tool probe proves the shell tool accepts platform-rendered commands on every target.
+8. Windows is not a verified platform target. Windows runtime code remains, but the gate does not run it.
+9. Node 24+ is available on every target.
+10. npm is available on every target.
+11. `git` is available on every target.
+12. `rsync` is available on macOS and Ubuntu.
+13. `tar` is available on every target.
+14. `node-pty` self-test passes on every target.
+15. Target pi tool probe proves the shell tool accepts platform-rendered commands on every target.
 20. Host-side xterm/Playwright render self-test passes by rendering a minimal ANSI fixture through the repo xterm helper and launching Playwright Chromium to write a tiny PNG. If this fails, run `npm install` and `npx playwright install chromium` before live suites.
 21. `CURSOR_API_KEY` is present.
 22. Artifact root is writable.
@@ -479,13 +421,13 @@ Doctor does not fail merely because the branch has uncommitted source or doc cha
 
 ## Dependency spike before implementation
 
-Before adding `node-pty` as a dev dependency, run a phase-zero spike on all three targets:
+Before adding `node-pty` as a dev dependency, run a phase-zero spike on both targets:
 
 ```text
 node -e "require('node-pty'); console.log('node-pty ok')"
 ```
 
-Windows native must use either verified prebuilt `node-pty` binaries for Node 24 or a documented build toolchain. If Node 24 + Windows native + `node-pty` cannot be made reliable, reject Crabbox as the required platform runner.
+If `node-pty` cannot be made reliable on a target, reject Crabbox as the required platform runner for that target.
 
 ## Packed-install rule
 
@@ -669,7 +611,7 @@ Purpose:
 - prove bridge shell card;
 - prove bridge diagnostics and JSONL use real pi tool names.
 
-The bridge shell call uses pi's `bash` tool on every target, including Windows native. The command is shell-neutral and relies only on Node, which every target already validates:
+The bridge shell call uses pi's `bash` tool on every target. The command is shell-neutral and relies only on Node, which every target already validates:
 
 ```text
 node -e "console.log('bridge visual smoke')"

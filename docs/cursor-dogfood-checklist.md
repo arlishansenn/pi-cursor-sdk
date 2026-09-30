@@ -26,6 +26,10 @@ In-session debug: `/cursor-tools` prints bridge enablement, bootstrap manifest e
 
 `pi --approve -e . --list-models cursor` should exit 0 and show a Cursor model table. On pi 0.79.x that table can land on stderr in automation, so capture both streams or redirect `2>&1` before treating empty stdout as a discovery failure.
 
+## Checkpoint restore live verification
+
+Run `npm run smoke:checkpoint-restore` after checkpoint-ledger changes. It copies a committed local checkpoint into a temporary store, reopens it, and sends once. Missing Cursor auth exits as release-blocked, not skipped-ready. It is not a cache-benefit measurement.
+
 ## JSONL spot-check
 
 Inspect the session JSONL under the temp `--session-dir`:
