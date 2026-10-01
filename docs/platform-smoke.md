@@ -12,7 +12,9 @@ Crabbox best-practice baseline applied from `~/Projects/crabbox`: Crabbox owns l
 
 ## Decision
 
-Crabbox is the required local platform smoke runner for `pi-cursor-sdk` releases that touch Cursor provider/runtime behavior. PRs that touch actual cloud runtime execution must also run `npm run smoke:cloud`.
+普通 commit、PR 与 merge 默认使用 focused offline tests、typecheck 和必要的 build；真实 smoke 仅在操作员明确要求时运行。报告未验证的真实 runtime，不将 smoke 未运行当作通过。无效 key 的真实 SDK contract tests 也属于网络入口，不能因测试名称自动执行。
+
+Crabbox 仍是 Cursor provider/runtime release-ready 的完整平台验证 runner。release-ready 必须取得 macOS 与 Ubuntu 的完整证据；涉及实际 cloud runtime 的发布还须通过 `npm run smoke:cloud`。没有明确授权则不启动付费 gate，报告 release-blocked；这不阻止普通提交与 PR。
 
 Inner-loop checks remain useful, but they are not release gates:
 
@@ -740,7 +742,7 @@ Maximum per target: `37` Cursor invocations.
 
 Maximum full gate: `111` Cursor invocations.
 
-The merge gate is `npm run smoke:platform:all`; that script runs doctor first and then the matrix to preserve this budget. No suite adds a new Cursor invocation without updating this plan and the scenario source of truth (`scripts/platform-smoke/scenarios.mjs`, plus `scripts/platform-smoke/local-resume-suites.mjs` for local-resume lanes).
+The release gate is `npm run smoke:platform:all`; it is not a default commit, PR, or merge gate. The script runs doctor first and then the matrix to preserve this budget. No suite adds a new Cursor invocation without updating this plan and the scenario source of truth (`scripts/platform-smoke/scenarios.mjs`, plus `scripts/platform-smoke/local-resume-suites.mjs` for local-resume lanes).
 
 ## Artifact contract
 
