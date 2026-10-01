@@ -1,0 +1,1347 @@
+{
+	"model": "grok-4.6:slow",
+	"selection": {
+		"id": "grok-4.6",
+		"params": [
+			{
+				"id": "effort",
+				"value": "high"
+			},
+			{
+				"id": "fast",
+				"value": "false"
+			}
+		]
+	},
+	"samples": 5,
+	"runs": [
+		{
+			"sample": 0,
+			"group": "A",
+			"started": "2026-10-01T07:55:06.252Z",
+			"t1": {
+				"ms": 21912,
+				"usageSource": "turn",
+				"inputTokens": 23182,
+				"cacheReadTokens": 1792,
+				"cacheWriteTokens": 0,
+				"outputTokens": 447,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3789,
+				"usageSource": "turn",
+				"inputTokens": 23776,
+				"cacheReadTokens": 23168,
+				"cacheWriteTokens": 0,
+				"outputTokens": 24,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 4256,
+				"usageSource": "turn",
+				"inputTokens": 23956,
+				"cacheReadTokens": 23680,
+				"cacheWriteTokens": 0,
+				"outputTokens": 89,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": true,
+					"beta": true
+				}
+			}
+		},
+		{
+			"sample": 0,
+			"group": "B",
+			"started": "2026-10-01T07:55:36.531Z",
+			"t1": {
+				"ms": 7742,
+				"usageSource": "turn",
+				"inputTokens": 23198,
+				"cacheReadTokens": 3712,
+				"cacheWriteTokens": 0,
+				"outputTokens": 110,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3298,
+				"usageSource": "turn",
+				"inputTokens": 23455,
+				"cacheReadTokens": 23168,
+				"cacheWriteTokens": 0,
+				"outputTokens": 37,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 10475,
+				"usageSource": "turn",
+				"inputTokens": 23464,
+				"cacheReadTokens": 0,
+				"cacheWriteTokens": 0,
+				"outputTokens": 61,
+				"created": 0,
+				"resumed": 1,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 0,
+			"group": "C",
+			"started": "2026-10-01T07:55:58.368Z",
+			"t1": {
+				"ms": 12207,
+				"usageSource": "turn",
+				"inputTokens": 47206,
+				"cacheReadTokens": 23232,
+				"cacheWriteTokens": 0,
+				"outputTokens": 643,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3911,
+				"usageSource": "turn",
+				"inputTokens": 24124,
+				"cacheReadTokens": 23936,
+				"cacheWriteTokens": 0,
+				"outputTokens": 41,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 14663,
+				"usageSource": "turn",
+				"inputTokens": 23233,
+				"cacheReadTokens": 2304,
+				"cacheWriteTokens": 0,
+				"outputTokens": 415,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 0,
+			"group": "B'",
+			"started": "2026-10-01T07:56:29.530Z",
+			"t1": {
+				"ms": 6791,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 22995,
+				"cacheReadTokens": 3712,
+				"cacheWriteTokens": 0,
+				"outputTokens": 79,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3369,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23131,
+				"cacheReadTokens": 22912,
+				"cacheWriteTokens": 0,
+				"outputTokens": 26,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 8040,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23140,
+				"cacheReadTokens": 1792,
+				"cacheWriteTokens": 0,
+				"outputTokens": 63,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 0,
+			"group": "D",
+			"started": "2026-10-01T07:56:51.615Z",
+			"t1": {
+				"ms": 6988,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 22925,
+				"cacheReadTokens": 1152,
+				"cacheWriteTokens": 0,
+				"outputTokens": 141,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 5166,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23123,
+				"cacheReadTokens": 22912,
+				"cacheWriteTokens": 0,
+				"outputTokens": 35,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 4969,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23132,
+				"cacheReadTokens": 23040,
+				"cacheWriteTokens": 0,
+				"outputTokens": 54,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 1,
+			"group": "B",
+			"started": "2026-10-01T07:57:13.493Z",
+			"t1": {
+				"ms": 14552,
+				"usageSource": "turn",
+				"inputTokens": 46932,
+				"cacheReadTokens": 24960,
+				"cacheWriteTokens": 0,
+				"outputTokens": 483,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3658,
+				"usageSource": "turn",
+				"inputTokens": 23950,
+				"cacheReadTokens": 23680,
+				"cacheWriteTokens": 0,
+				"outputTokens": 35,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 7165,
+				"usageSource": "turn",
+				"inputTokens": 23959,
+				"cacheReadTokens": 23680,
+				"cacheWriteTokens": 0,
+				"outputTokens": 86,
+				"created": 0,
+				"resumed": 1,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 1,
+			"group": "C",
+			"started": "2026-10-01T07:57:39.242Z",
+			"t1": {
+				"ms": 11128,
+				"usageSource": "turn",
+				"inputTokens": 23198,
+				"cacheReadTokens": 1792,
+				"cacheWriteTokens": 0,
+				"outputTokens": 237,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3159,
+				"usageSource": "turn",
+				"inputTokens": 23582,
+				"cacheReadTokens": 23168,
+				"cacheWriteTokens": 0,
+				"outputTokens": 33,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 14386,
+				"usageSource": "turn",
+				"inputTokens": 23224,
+				"cacheReadTokens": 3712,
+				"cacheWriteTokens": 0,
+				"outputTokens": 496,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 1,
+			"group": "B'",
+			"started": "2026-10-01T07:58:08.283Z",
+			"t1": {
+				"ms": 7636,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 22986,
+				"cacheReadTokens": 1792,
+				"cacheWriteTokens": 0,
+				"outputTokens": 144,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3915,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23187,
+				"cacheReadTokens": 0,
+				"cacheWriteTokens": 0,
+				"outputTokens": 24,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 7133,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23196,
+				"cacheReadTokens": 512,
+				"cacheWriteTokens": 0,
+				"outputTokens": 50,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 1,
+			"group": "D",
+			"started": "2026-10-01T07:58:33.925Z",
+			"t1": {
+				"ms": 5554,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 22978,
+				"cacheReadTokens": 1792,
+				"cacheWriteTokens": 0,
+				"outputTokens": 73,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 2885,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23108,
+				"cacheReadTokens": 22912,
+				"cacheWriteTokens": 0,
+				"outputTokens": 23,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 4912,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23117,
+				"cacheReadTokens": 23040,
+				"cacheWriteTokens": 0,
+				"outputTokens": 61,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 1,
+			"group": "A",
+			"started": "2026-10-01T07:58:51.151Z",
+			"t1": {
+				"ms": 11110,
+				"usageSource": "turn",
+				"inputTokens": 23196,
+				"cacheReadTokens": 0,
+				"cacheWriteTokens": 0,
+				"outputTokens": 291,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 2789,
+				"usageSource": "turn",
+				"inputTokens": 23628,
+				"cacheReadTokens": 23168,
+				"cacheWriteTokens": 0,
+				"outputTokens": 30,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 5501,
+				"usageSource": "turn",
+				"inputTokens": 23808,
+				"cacheReadTokens": 23616,
+				"cacheWriteTokens": 0,
+				"outputTokens": 94,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": true,
+					"beta": true
+				}
+			}
+		},
+		{
+			"sample": 2,
+			"group": "C",
+			"started": "2026-10-01T07:59:11.262Z",
+			"t1": {
+				"ms": 12650,
+				"usageSource": "turn",
+				"inputTokens": 23225,
+				"cacheReadTokens": 3712,
+				"cacheWriteTokens": 0,
+				"outputTokens": 232,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3198,
+				"usageSource": "turn",
+				"inputTokens": 23604,
+				"cacheReadTokens": 23168,
+				"cacheWriteTokens": 0,
+				"outputTokens": 36,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 15855,
+				"usageSource": "turn",
+				"inputTokens": 23251,
+				"cacheReadTokens": 7168,
+				"cacheWriteTokens": 0,
+				"outputTokens": 549,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 2,
+			"group": "B'",
+			"started": "2026-10-01T07:59:45.539Z",
+			"t1": {
+				"ms": 5522,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 22917,
+				"cacheReadTokens": 2304,
+				"cacheWriteTokens": 0,
+				"outputTokens": 72,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 2748,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23046,
+				"cacheReadTokens": 22912,
+				"cacheWriteTokens": 0,
+				"outputTokens": 19,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 7736,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23055,
+				"cacheReadTokens": 4224,
+				"cacheWriteTokens": 0,
+				"outputTokens": 57,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 2,
+			"group": "D",
+			"started": "2026-10-01T08:00:04.683Z",
+			"t1": {
+				"ms": 6088,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 22937,
+				"cacheReadTokens": 1152,
+				"cacheWriteTokens": 0,
+				"outputTokens": 57,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3894,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23051,
+				"cacheReadTokens": 22912,
+				"cacheWriteTokens": 0,
+				"outputTokens": 23,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 6446,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23060,
+				"cacheReadTokens": 22912,
+				"cacheWriteTokens": 0,
+				"outputTokens": 51,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 2,
+			"group": "A",
+			"started": "2026-10-01T08:00:24.733Z",
+			"t1": {
+				"ms": 8787,
+				"usageSource": "turn",
+				"inputTokens": 23169,
+				"cacheReadTokens": 4224,
+				"cacheWriteTokens": 0,
+				"outputTokens": 77,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3170,
+				"usageSource": "turn",
+				"inputTokens": 23393,
+				"cacheReadTokens": 23168,
+				"cacheWriteTokens": 0,
+				"outputTokens": 35,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 3940,
+				"usageSource": "turn",
+				"inputTokens": 23584,
+				"cacheReadTokens": 23296,
+				"cacheWriteTokens": 0,
+				"outputTokens": 88,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": true,
+					"beta": true
+				}
+			}
+		},
+		{
+			"sample": 2,
+			"group": "B",
+			"started": "2026-10-01T08:00:40.992Z",
+			"t1": {
+				"ms": 10384,
+				"usageSource": "turn",
+				"inputTokens": 23265,
+				"cacheReadTokens": 0,
+				"cacheWriteTokens": 0,
+				"outputTokens": 86,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 6750,
+				"usageSource": "turn",
+				"inputTokens": 23492,
+				"cacheReadTokens": 23232,
+				"cacheWriteTokens": 0,
+				"outputTokens": 41,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 9401,
+				"usageSource": "turn",
+				"inputTokens": 23350,
+				"cacheReadTokens": 1792,
+				"cacheWriteTokens": 0,
+				"outputTokens": 125,
+				"created": 0,
+				"resumed": 1,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 3,
+			"group": "B'",
+			"started": "2026-10-01T08:01:07.901Z",
+			"t1": {
+				"ms": 5902,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 22902,
+				"cacheReadTokens": 1792,
+				"cacheWriteTokens": 0,
+				"outputTokens": 59,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3320,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23018,
+				"cacheReadTokens": 22784,
+				"cacheWriteTokens": 0,
+				"outputTokens": 19,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 9447,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23027,
+				"cacheReadTokens": 1792,
+				"cacheWriteTokens": 0,
+				"outputTokens": 130,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 3,
+			"group": "D",
+			"started": "2026-10-01T08:01:32.711Z",
+			"t1": {
+				"ms": 5972,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 22976,
+				"cacheReadTokens": 0,
+				"cacheWriteTokens": 0,
+				"outputTokens": 53,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3533,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23086,
+				"cacheReadTokens": 22912,
+				"cacheWriteTokens": 0,
+				"outputTokens": 19,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 5996,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23095,
+				"cacheReadTokens": 1152,
+				"cacheWriteTokens": 0,
+				"outputTokens": 65,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 3,
+			"group": "A",
+			"started": "2026-10-01T08:01:51.876Z",
+			"t1": {
+				"ms": 9777,
+				"usageSource": "turn",
+				"inputTokens": 23184,
+				"cacheReadTokens": 384,
+				"cacheWriteTokens": 0,
+				"outputTokens": 85,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3036,
+				"usageSource": "turn",
+				"inputTokens": 23416,
+				"cacheReadTokens": 23168,
+				"cacheWriteTokens": 0,
+				"outputTokens": 24,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 3560,
+				"usageSource": "turn",
+				"inputTokens": 23596,
+				"cacheReadTokens": 23296,
+				"cacheWriteTokens": 0,
+				"outputTokens": 89,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": true,
+					"beta": true
+				}
+			}
+		},
+		{
+			"sample": 3,
+			"group": "B",
+			"started": "2026-10-01T08:02:08.624Z",
+			"t1": {
+				"ms": 13405,
+				"usageSource": "turn",
+				"inputTokens": 23199,
+				"cacheReadTokens": 3712,
+				"cacheWriteTokens": 0,
+				"outputTokens": 204,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3480,
+				"usageSource": "turn",
+				"inputTokens": 23550,
+				"cacheReadTokens": 23168,
+				"cacheWriteTokens": 0,
+				"outputTokens": 24,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 8874,
+				"usageSource": "turn",
+				"inputTokens": 23559,
+				"cacheReadTokens": 3712,
+				"cacheWriteTokens": 0,
+				"outputTokens": 80,
+				"created": 0,
+				"resumed": 1,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 3,
+			"group": "C",
+			"started": "2026-10-01T08:02:34.714Z",
+			"t1": {
+				"ms": 13932,
+				"usageSource": "turn",
+				"inputTokens": 23225,
+				"cacheReadTokens": 9856,
+				"cacheWriteTokens": 0,
+				"outputTokens": 373,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3114,
+				"usageSource": "turn",
+				"inputTokens": 23745,
+				"cacheReadTokens": 23168,
+				"cacheWriteTokens": 0,
+				"outputTokens": 36,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 11775,
+				"usageSource": "turn",
+				"inputTokens": 23251,
+				"cacheReadTokens": 2304,
+				"cacheWriteTokens": 0,
+				"outputTokens": 322,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 4,
+			"group": "D",
+			"started": "2026-10-01T08:03:03.903Z",
+			"t1": {
+				"ms": 6408,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 22993,
+				"cacheReadTokens": 2176,
+				"cacheWriteTokens": 0,
+				"outputTokens": 88,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3071,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23138,
+				"cacheReadTokens": 22912,
+				"cacheWriteTokens": 0,
+				"outputTokens": 20,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 5642,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 23147,
+				"cacheReadTokens": 23040,
+				"cacheWriteTokens": 0,
+				"outputTokens": 55,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 4,
+			"group": "A",
+			"started": "2026-10-01T08:03:22.217Z",
+			"t1": {
+				"ms": 9917,
+				"usageSource": "turn",
+				"inputTokens": 23243,
+				"cacheReadTokens": 512,
+				"cacheWriteTokens": 0,
+				"outputTokens": 150,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3473,
+				"usageSource": "turn",
+				"inputTokens": 23540,
+				"cacheReadTokens": 23168,
+				"cacheWriteTokens": 0,
+				"outputTokens": 32,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 3662,
+				"usageSource": "turn",
+				"inputTokens": 23728,
+				"cacheReadTokens": 23424,
+				"cacheWriteTokens": 0,
+				"outputTokens": 100,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": true,
+					"beta": true
+				}
+			}
+		},
+		{
+			"sample": 4,
+			"group": "B",
+			"started": "2026-10-01T08:03:39.606Z",
+			"t1": {
+				"ms": 9163,
+				"usageSource": "turn",
+				"inputTokens": 23138,
+				"cacheReadTokens": 0,
+				"cacheWriteTokens": 0,
+				"outputTokens": 183,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3502,
+				"usageSource": "turn",
+				"inputTokens": 23468,
+				"cacheReadTokens": 23040,
+				"cacheWriteTokens": 0,
+				"outputTokens": 32,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 9392,
+				"usageSource": "turn",
+				"inputTokens": 23477,
+				"cacheReadTokens": 3712,
+				"cacheWriteTokens": 0,
+				"outputTokens": 79,
+				"created": 0,
+				"resumed": 1,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 4,
+			"group": "C",
+			"started": "2026-10-01T08:04:01.987Z",
+			"t1": {
+				"ms": 10664,
+				"usageSource": "turn",
+				"inputTokens": 23177,
+				"cacheReadTokens": 9728,
+				"cacheWriteTokens": 0,
+				"outputTokens": 314,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3090,
+				"usageSource": "turn",
+				"inputTokens": 23638,
+				"cacheReadTokens": 23168,
+				"cacheWriteTokens": 0,
+				"outputTokens": 36,
+				"created": 0,
+				"resumed": 0,
+				"sendMode": "incremental",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 10575,
+				"usageSource": "turn",
+				"inputTokens": 23203,
+				"cacheReadTokens": 2304,
+				"cacheWriteTokens": 0,
+				"outputTokens": 199,
+				"created": 1,
+				"resumed": 0,
+				"sendMode": "bootstrap",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		},
+		{
+			"sample": 4,
+			"group": "B'",
+			"started": "2026-10-01T08:04:26.703Z",
+			"t1": {
+				"ms": 5843,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 22871,
+				"cacheReadTokens": 9728,
+				"cacheWriteTokens": 0,
+				"outputTokens": 54,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t2": {
+				"ms": 3211,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 22982,
+				"cacheReadTokens": 9856,
+				"cacheWriteTokens": 0,
+				"outputTokens": 19,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": false,
+					"beta": false
+				}
+			},
+			"t3": {
+				"ms": 6957,
+				"usageSource": "turn",
+				"turnEndedCount": 1,
+				"inputTokens": 22991,
+				"cacheReadTokens": 2304,
+				"cacheWriteTokens": 0,
+				"outputTokens": 59,
+				"runStatus": "finished",
+				"answer": {
+					"alpha": true,
+					"beta": false
+				}
+			}
+		}
+	],
+	"summary": {
+		"A": {
+			"n": 5,
+			"t1": {
+				"inputTokens": 23184,
+				"cacheReadTokens": 512,
+				"cacheWriteTokens": 0,
+				"ms": 9917
+			},
+			"t2": {
+				"inputTokens": 23540,
+				"cacheReadTokens": 23168,
+				"cacheWriteTokens": 0,
+				"ms": 3170
+			},
+			"t3": {
+				"inputTokens": 23728,
+				"cacheReadTokens": 23424,
+				"cacheWriteTokens": 0,
+				"ms": 3940
+			}
+		},
+		"B": {
+			"n": 5,
+			"t1": {
+				"inputTokens": 23199,
+				"cacheReadTokens": 3712,
+				"cacheWriteTokens": 0,
+				"ms": 10384
+			},
+			"t2": {
+				"inputTokens": 23492,
+				"cacheReadTokens": 23168,
+				"cacheWriteTokens": 0,
+				"ms": 3502
+			},
+			"t3": {
+				"inputTokens": 23477,
+				"cacheReadTokens": 3712,
+				"cacheWriteTokens": 0,
+				"ms": 9392
+			}
+		},
+		"C": {
+			"n": 5,
+			"t1": {
+				"inputTokens": 23225,
+				"cacheReadTokens": 9728,
+				"cacheWriteTokens": 0,
+				"ms": 12207
+			},
+			"t2": {
+				"inputTokens": 23638,
+				"cacheReadTokens": 23168,
+				"cacheWriteTokens": 0,
+				"ms": 3159
+			},
+			"t3": {
+				"inputTokens": 23233,
+				"cacheReadTokens": 2304,
+				"cacheWriteTokens": 0,
+				"ms": 14386
+			}
+		},
+		"B'": {
+			"n": 5,
+			"t1": {
+				"inputTokens": 22917,
+				"cacheReadTokens": 2304,
+				"cacheWriteTokens": 0,
+				"ms": 5902
+			},
+			"t2": {
+				"inputTokens": 23046,
+				"cacheReadTokens": 22784,
+				"cacheWriteTokens": 0,
+				"ms": 3320
+			},
+			"t3": {
+				"inputTokens": 23055,
+				"cacheReadTokens": 1792,
+				"cacheWriteTokens": 0,
+				"ms": 7736
+			}
+		},
+		"D": {
+			"n": 5,
+			"t1": {
+				"inputTokens": 22976,
+				"cacheReadTokens": 1152,
+				"cacheWriteTokens": 0,
+				"ms": 6088
+			},
+			"t2": {
+				"inputTokens": 23108,
+				"cacheReadTokens": 22912,
+				"cacheWriteTokens": 0,
+				"ms": 3533
+			},
+			"t3": {
+				"inputTokens": 23117,
+				"cacheReadTokens": 23040,
+				"cacheWriteTokens": 0,
+				"ms": 5642
+			}
+		}
+	},
+	"failure": null
+}
