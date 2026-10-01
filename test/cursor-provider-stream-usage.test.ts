@@ -126,7 +126,10 @@ describe("streamCursor usage accounting", () => {
 			expect(getDoneEvent(events).reason).toBe("stop");
 			await actionLogTestUtils.flush();
 
-			const usageLine = JSON.parse(readFileSync(join(dir, "usage.jsonl"), "utf8").trim());
+			const usageLines = readFileSync(join(dir, "usage.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+			const usageLine = usageLines.find((line) => line.source === "turn");
+			expect(usageLines.filter((line) => line.source === "raw")).toHaveLength(1);
+			expect(usageLines.find((line) => line.source === "raw")).toMatchObject({ runId: "run-42", usageEventIndex: 1, semantics: "sdk_raw_turn" });
 			const sendLines = readFileSync(join(dir, "actions.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
 			const agentSend = sendLines.filter((line) => line.action === "agent_send" && line.phase === "success");
 			expect(agentSend).toHaveLength(1);

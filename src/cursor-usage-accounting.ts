@@ -37,24 +37,24 @@ export function getCursorPromptOptions(model: Model<Api>): CursorUsagePromptOpti
 	};
 }
 
-function getNonNegativeTokenCount(record: Record<string, unknown> | undefined, key: string): number | undefined {
+function getNonNegativeTokenCount(record: Record<string, unknown> | undefined, key: string, preserveRawCounts: boolean): number | undefined {
 	const value = getNumber(record, key);
-	return value === undefined || value < 0 ? undefined : Math.floor(value);
+	return value === undefined || value < 0 ? undefined : preserveRawCounts ? value : Math.floor(value);
 }
 
-export function readCursorSdkTurnUsage(value: unknown): CursorSdkTurnUsage | undefined {
+export function readCursorSdkTurnUsage(value: unknown, preserveRawCounts = false): CursorSdkTurnUsage | undefined {
 	const record = asRecord(value);
-	const inputTokens = getNonNegativeTokenCount(record, "inputTokens");
-	const outputTokens = getNonNegativeTokenCount(record, "outputTokens");
-	const cacheReadTokens = getNonNegativeTokenCount(record, "cacheReadTokens");
-	const cacheWriteTokens = getNonNegativeTokenCount(record, "cacheWriteTokens");
+	const inputTokens = getNonNegativeTokenCount(record, "inputTokens", preserveRawCounts);
+	const outputTokens = getNonNegativeTokenCount(record, "outputTokens", preserveRawCounts);
+	const cacheReadTokens = getNonNegativeTokenCount(record, "cacheReadTokens", preserveRawCounts);
+	const cacheWriteTokens = getNonNegativeTokenCount(record, "cacheWriteTokens", preserveRawCounts);
 	if (inputTokens === undefined || outputTokens === undefined || cacheReadTokens === undefined || cacheWriteTokens === undefined) return undefined;
 	return { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens };
 }
 
-export function readCursorSdkTurnUsageFromUpdate(update: unknown): CursorSdkTurnUsage | undefined {
+export function readCursorSdkTurnUsageFromUpdate(update: unknown, preserveRawCounts = false): CursorSdkTurnUsage | undefined {
 	const record = asRecord(update);
-	return record?.type === "turn-ended" ? readCursorSdkTurnUsage(record.usage) : undefined;
+	return record?.type === "turn-ended" ? readCursorSdkTurnUsage(record.usage, preserveRawCounts) : undefined;
 }
 
 function stringifyUsageValue(value: unknown): string {
@@ -242,6 +242,8 @@ export function applyCursorUsage(
 		provider: model.provider,
 		runtime: sdkUsage?.runtime ?? "local",
 		source: logSource,
+		schemaVersion: 2,
+		semantics: "pi_usage_mapping",
 		...sdkUsage?.correlation,
 		inputTokens: logUsage ? logUsage.inputTokens : partial.usage.input,
 		outputTokens: logUsage ? logUsage.outputTokens : partial.usage.output,
