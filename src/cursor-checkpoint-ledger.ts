@@ -2,7 +2,7 @@ import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent
 import type { LocalAgentStore } from "@cursor/sdk";
 import { randomUUID } from "node:crypto";
 import { isCursorLocalAgentId } from "./cursor-session-agent-resume.js";
-import type { CursorSessionStoreIdentity } from "./cursor-session-store.js";
+import { openCursorSessionStore, type CursorSessionStoreIdentity } from "./cursor-session-store.js";
 import { asRecord } from "./cursor-record-utils.js";
 import { getCursorSessionScopeKey } from "./cursor-session-scope.js";
 
@@ -117,6 +117,20 @@ export async function copyCursorCheckpointPoint(store: LocalAgentStore, point: C
 			throw new Error("Cursor checkpoint copy cleanup failed", { cause: cleanupError });
 		}
 		throw error;
+	}
+}
+
+/** Delete an unused restore copy target (agent row + checkpoint blobs) from its store. */
+export async function deleteCursorCheckpointTarget(
+	cwd: string,
+	target: { agentId: string; storeIdentity: CursorSessionStoreIdentity },
+): Promise<void> {
+	const opened = await openCursorSessionStore(cwd, target.storeIdentity);
+	try {
+		await opened.store.checkpoints.delete({ filter: { agentIds: [target.agentId] } });
+		await opened.store.agents.delete({ filter: { agentIds: [target.agentId] } });
+	} finally {
+		await opened.dispose().catch(() => undefined);
 	}
 }
 

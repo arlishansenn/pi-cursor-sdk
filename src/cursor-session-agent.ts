@@ -547,7 +547,12 @@ async function createSessionAgentEntry(
 				agent = await traceCursorAction({ action: "agent_resume", scopeKey, instanceId, agentId: resumeAgentId, runtime: "local" }, () => resumeAgent(resumeAgentId, buildAgentOptions()));
 				effectiveSendState = { ...(params.checkpointSendState ?? persistedResumeHandle?.sendState ?? sendState) };
 				resumed = true;
-			} catch {
+			} catch (error) {
+				// An explicit resume target (checkpoint restore) must surface rejection: the
+				// restore transaction in turn-prepare owns the unavailable mark, copy-target
+				// cleanup, and the force-create fallback. Persisted-handle resume keeps the
+				// in-entry fallback with a continuity notice.
+				if (params.resumeAgentId !== undefined) throw error;
 				if (persistentStore) resumeNotice = LOCAL_RESUME_FALLBACK_NOTICE;
 				if (!cursorSessionStoreIdentitiesEqual(sessionStore.identity, identities.sessionStore)) {
 					await sessionStore.dispose().catch(() => undefined);
