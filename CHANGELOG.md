@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Docs
+
+- Document that ambient Cursor **plugins** and **file hooks** load with `PI_CURSOR_SETTING_SOURCES=all`, and add evidence that a machine-local context-mode install reaches the SDK local agent ([docs/evidence/cursor-ambient-context-mode-2026-10-01.md](docs/evidence/cursor-ambient-context-mode-2026-10-01.md); [docs/cursor-tool-surfaces.md](docs/cursor-tool-surfaces.md)).
+
 ### Changed
 
 - The platform smoke gate verifies macOS and Ubuntu only. Windows runtime code remains, but Windows is no longer a verified platform lane and the gate does not require Parallels.
