@@ -1,5 +1,7 @@
 import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { LocalAgentStore } from "@cursor/sdk";
+import type { Context } from "@earendil-works/pi-ai";
+import { shouldBootstrapCursorContext } from "./context.js";
 import { randomUUID } from "node:crypto";
 import { isCursorLocalAgentId } from "./cursor-session-agent-resume.js";
 import { openCursorSessionStore, type CursorSessionStoreIdentity } from "./cursor-session-store.js";
@@ -71,8 +73,13 @@ export function recordCursorCheckpointPoint(input: Omit<CursorCheckpointLedgerPo
 	}
 }
 
-export function findCursorCheckpointPoint(scopeKey: string, contextFingerprint: string, storeIdentity: CursorSessionStoreIdentity): CursorCheckpointLedgerPoint | undefined {
-	return state.points.find((point) => point.scopeKey === scopeKey && point.contextFingerprint === contextFingerprint && !point.unavailable && sameStore(point.storeIdentity, storeIdentity));
+/**
+ * Usable point that `context` extends the way an incremental send would. A point's
+ * fingerprint is the context it sent; its checkpoint also holds the reply to that context.
+ */
+export function findCursorCheckpointPoint(scopeKey: string, context: Context, storeIdentity: CursorSessionStoreIdentity): CursorCheckpointLedgerPoint | undefined {
+	return state.points.find((point) => point.scopeKey === scopeKey && !point.unavailable && sameStore(point.storeIdentity, storeIdentity)
+		&& !shouldBootstrapCursorContext({ bootstrapped: true, contextFingerprint: point.contextFingerprint }, context));
 }
 
 export function markCursorCheckpointPointUnavailable(scopeKey: string, contextFingerprint: string): void {

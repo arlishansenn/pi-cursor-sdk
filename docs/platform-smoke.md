@@ -481,7 +481,7 @@ The remaining local-resume platform suites run the matching focused package scri
 | `cursor-local-resume-safety` | `npm run smoke:local-resume:safety` | clone rejection and fork-before-future no-leak |
 | `cursor-local-resume-tool-surface` | `npm run smoke:local-resume:tool-surface` | stale handle rejection after bridge/tool-surface change |
 | `cursor-local-resume-abort` | `npm run smoke:local-resume:abort` | interrupted bridge turn does not persist/reuse stale handle |
-| `cursor-local-resume-tree` | `npm run smoke:local-resume:tree` | earlier assistant and resume-entry tree targets reject future-seeing agent |
+| `cursor-local-resume-tree` | `npm run smoke:local-resume:tree` | earlier assistant and resume-entry tree targets never resume the future-seeing agent; each restores a separate checkpoint copy with an incremental send and does not leak the future marker |
 | `cursor-local-resume-copy-switch` | `npm run smoke:local-resume:copy-switch` | copied session file rejects copied resume handle |
 | `cursor-local-resume-fallback` | `npm run smoke:local-resume:fallback` | missing local agent falls back with continuity notice |
 | `cursor-local-resume-compaction` | `npm run smoke:local-resume:compaction` | compaction boundary creates/resumes post-compaction generation |
