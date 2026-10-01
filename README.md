@@ -629,7 +629,7 @@ Many runs never expose web activity as replayable SDK tool completions or local 
 
 ### I disabled MCP in pi but Cursor still has extra tools
 
-pi extension toggles and pi's MCP catalog do not control Cursor ambient MCP. Local Cursor agents load MCP servers from Cursor setting sources (`PI_CURSOR_SETTING_SOURCES=all` by default), including `~/.cursor/mcp.json`. To remove a server, edit or clear that file (or Cursor MCP settings) and restart the pi session, or narrow/disable sources with `PI_CURSOR_SETTING_SOURCES=none` or a comma-separated subset. See [Cursor tool surfaces in pi](docs/cursor-tool-surfaces.md).
+pi extension toggles and pi's MCP catalog do not control Cursor ambient MCP. Local Cursor agents load MCP servers from Cursor setting sources (`PI_CURSOR_SETTING_SOURCES=all` by default), including user `~/.cursor/mcp.json`, project `.cursor/mcp.json`, and **plugin-declared** servers under `~/.cursor/plugins/local/`. File hooks come from `~/.cursor/hooks.json` (and project `.cursor/hooks.json`) on the same gate. To remove a user-file server, edit or clear that file (or Cursor MCP settings) and restart the pi session; plugin MCP is separate from `mcp.json`. Or narrow/disable sources with `PI_CURSOR_SETTING_SOURCES=none` or a comma-separated subset. See [Cursor tool surfaces in pi](docs/cursor-tool-surfaces.md) and [ambient context-mode evidence](docs/evidence/cursor-ambient-context-mode-2026-10-01.md).
 
 ### Cursor does not call my pi extension tool
 

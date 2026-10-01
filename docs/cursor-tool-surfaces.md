@@ -7,7 +7,7 @@ pi-cursor-sdk runs Cursor models through the local `@cursor/sdk` agent runtime b
 | Surface | Who owns it | Callable by Cursor? | What pi shows |
 | --- | --- | --- | --- |
 | **Cursor SDK host tools** | Cursor local agent | Yes | Native replay cards (`read`, `bash`, …) or neutral Cursor activity. Representative ToolType list: [SDK ToolType replay matrix](./cursor-native-tool-replay.md#sdk-tooltype-replay-matrix). |
-| **Configured Cursor MCP** | Cursor settings / `~/.cursor/mcp.json` | Yes (when loaded) | Neutral **Cursor MCP** activity cards on replay |
+| **Configured Cursor MCP** | Cursor setting sources: user `~/.cursor/mcp.json`, project `.cursor/mcp.json`, and **plugin** `mcpServers` (e.g. local plugins under `~/.cursor/plugins/local/*/`) when `PI_CURSOR_SETTING_SOURCES` includes those layers | Yes (when loaded) | Neutral **Cursor MCP** activity cards on replay |
 | **Pi bridge (`pi__*`)** | pi-cursor-sdk loopback MCP | Yes, when exposed | Real pi tool names (`cursor_ask_question`, `cursor_activate_skill`, extension tools, …) |
 
 Pi CLI tool toggles apply at the pi tool-registry boundary. `--no-tools`, `--tools`, and `--exclude-tools` can remove pi bridge exposure, but they do **not** disable Cursor SDK host tools or configured Cursor MCP servers.
@@ -67,12 +67,16 @@ Disabling or removing an MCP server **only in pi** does not remove Cursor ambien
 | --- | --- |
 | `pi --no-tools` | Disables pi built-in/extension/custom tools and therefore removes pi bridge exposure; Cursor SDK host tools still remain callable. |
 | `pi --tools ...` / `pi --exclude-tools ...` | Narrows pi's active tool registry and therefore the pi bridge snapshot; Cursor SDK host tools and configured Cursor MCP are unchanged. |
-| `PI_CURSOR_SETTING_SOURCES=all` (default) | Loads user/project Cursor MCP, plugins, rules (`~/.cursor/mcp.json`, etc.) |
-| `PI_CURSOR_SETTING_SOURCES=none` | Disables ambient Cursor setting sources for local agents |
+| `PI_CURSOR_SETTING_SOURCES=all` (default) | Loads user/project Cursor MCP, **plugins**, rules, and **file hooks** (`~/.cursor/hooks.json`, project `.cursor/hooks.json`) |
+| `PI_CURSOR_SETTING_SOURCES=none` | Disables ambient Cursor setting sources for local agents (no ambient MCP, plugins, or file hooks) |
 | `PI_CURSOR_SETTING_SOURCES=project,plugins` | Narrows which layers load |
-| Empty or edited `~/.cursor/mcp.json` | Changes which user MCP servers Cursor connects to |
+| Empty or edited `~/.cursor/mcp.json` | Changes which **user-file** MCP servers Cursor connects to (does not remove plugin-declared MCP) |
+| Plugin under `~/.cursor/plugins/local/<name>/` | Declares plugin MCP / hooks via `.cursor-plugin/plugin.json`; SDK loads MCP when `plugins` (or `all`) is enabled |
+| `~/.cursor/hooks.json` | User-level file hooks the SDK executes when `user` (or `all`) is enabled |
 
-To reproduce a **minimal** surface (pi-cursor-sdk + Cursor host only), use extension-only install, empty user MCP config, and `PI_CURSOR_SETTING_SOURCES=none` when you do not need Cursor rules/MCP from disk.
+To reproduce a **minimal** surface (pi-cursor-sdk + Cursor host only), use extension-only install, empty user MCP config, and `PI_CURSOR_SETTING_SOURCES=none` when you do not need Cursor rules/MCP/plugins/hooks from disk.
+
+Verified example (plugin MCP + user hooks, not `mcp.json`): [Cursor ambient context-mode evidence (2026-10-01)](./evidence/cursor-ambient-context-mode-2026-10-01.md).
 
 ## JSONL ID patterns (debugging)
 
@@ -88,3 +92,4 @@ Example mistake: treating `cursor-replay-…` as a tool to invoke. Replay never 
 - [README — Cursor provider tool contract](../README.md#cursor-provider-tool-contract)
 - [Cursor native tool replay](./cursor-native-tool-replay.md)
 - [Cursor model UX spec](./cursor-model-ux-spec.md)
+- [Evidence — ambient context-mode on SDK local agent](./evidence/cursor-ambient-context-mode-2026-10-01.md)
