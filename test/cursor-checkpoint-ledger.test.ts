@@ -7,8 +7,12 @@ import {
 	copyCursorCheckpointPoint,
 	findCursorCheckpointPoint,
 	markCursorCheckpointPointUnavailable,
+	canRewindCursorCheckpointSource,
+	isCursorCheckpointAgentRewound,
 	recordCursorCheckpointPoint,
+	recordCursorCheckpointRewind,
 	registerCursorCheckpointLedger,
+	rewindCursorCheckpointSource,
 	__testUtils,
 } from "../src/cursor-checkpoint-ledger.js";
 import { captureCommittedCursorCheckpoint } from "../src/cursor-session-agent.js";
@@ -86,6 +90,49 @@ describe("cursor checkpoint ledger", () => {
 		registerCursorCheckpointLedger(reloaded);
 		handler({}, { sessionManager: { getEntries: () => entries } });
 		expect(findCursorCheckpointPoint(point.scopeKey, NEXT_CONTEXT, point.storeIdentity)).toBeUndefined();
+	});
+
+	it("keeps rewind markers from every branch across session_start and session_tree", () => {
+		const pi = createPiHarness();
+		registerCursorCheckpointLedger(pi);
+		const allEntries: unknown[] = [];
+		pi.appendEntry.mockImplementation((customType: string, data: unknown) => {
+			allEntries.push({ type: "custom", customType, data });
+		});
+		recordCursorCheckpointRewind("agent-source");
+		expect(isCursorCheckpointAgentRewound("agent-source")).toBe(true);
+		__testUtils.reset();
+		registerCursorCheckpointLedger(pi);
+		const handlerFor = (event: string) => pi.on.mock.calls.find((call) => String(call[0]) === event)?.[1] as
+			(event: unknown, ctx: { sessionManager: { getEntries(): unknown[]; getBranch(): unknown[] } }) => void;
+		handlerFor("session_start")({}, { sessionManager: { getEntries: () => allEntries, getBranch: () => [] } });
+		expect(isCursorCheckpointAgentRewound("agent-source")).toBe(true);
+		__testUtils.reset();
+		registerCursorCheckpointLedger(pi);
+		handlerFor("session_tree")({}, { sessionManager: { getEntries: () => allEntries, getBranch: () => [] } });
+		expect(isCursorCheckpointAgentRewound("agent-source")).toBe(true);
+		expect(isCursorCheckpointAgentRewound("agent-other")).toBe(false);
+	});
+
+	it("rewinds only an idle source that still holds the head blob, keeping later blobs", async () => {
+		const { store, identity, point } = await storeWithPoint();
+		try {
+			const later = "dd".repeat(32);
+			await store.checkpoints.create({ agentId: "agent-source", blobId: later, data: Buffer.from("BETA") });
+			const source = await store.agents.get({ agentId: "agent-source" });
+			await store.agents.update({ agent: { ...source!, latestCheckpoint: { schemaVersion: 1, rootBlobId: later }, activeRunId: "run-1", updatedAt: Date.now() } });
+			const recorded = findCursorCheckpointPoint(point.scopeKey, NEXT_CONTEXT, identity)!;
+			expect(await canRewindCursorCheckpointSource(store, recorded)).toBe(false);
+			await expect(rewindCursorCheckpointSource(identity.stateRoot, recorded)).rejects.toThrow(/active run/);
+			await store.agents.update({ agent: { ...(await store.agents.get({ agentId: "agent-source" }))!, activeRunId: null, updatedAt: Date.now() } });
+			expect(await canRewindCursorCheckpointSource(store, recorded)).toBe(true);
+			expect(await canRewindCursorCheckpointSource(store, { ...recorded, headBlobId: "ee".repeat(32) })).toBe(false);
+			await rewindCursorCheckpointSource(identity.stateRoot, recorded);
+			expect((await store.agents.get({ agentId: "agent-source" }))?.latestCheckpoint?.rootBlobId).toBe(point.headBlobId);
+			expect((await store.checkpoints.list({ filter: { agentIds: ["agent-source"] } })).items).toEqual(expect.arrayContaining([...point.blobIds, later]));
+		} finally {
+			await store.dispose();
+		}
 	});
 
 	it("keeps a successful turn when checkpoint reads reject", async () => {

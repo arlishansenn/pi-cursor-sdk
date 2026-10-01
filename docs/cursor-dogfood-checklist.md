@@ -28,7 +28,7 @@ In-session debug: `/cursor-tools` prints bridge enablement, bootstrap manifest e
 
 ## Checkpoint restore live verification
 
-Run `npm run smoke:checkpoint-restore` after checkpoint-ledger changes. It drives the production provider path with the default restore setting: ALPHA, then BETA, then a branch back to after ALPHA must restore into a new agent with an incremental send that recalls ALPHA and not BETA, and, after the real `/tree` lifecycle empties the pool, the BETA branch must restore without creating an agent and recall both. Missing Cursor auth exits as release-blocked, not skipped-ready. It is not a cache-benefit measurement; that is `node scripts/cache-benefit-experiment.mjs --samples 5` (#8, results in `docs/evidence/cursor-cache-benefit-2026-10-01.md`).
+Run `npm run smoke:checkpoint-restore` after checkpoint-ledger changes. It drives the production provider path with the default restore setting: ALPHA, then BETA, then a branch back to after ALPHA must rewind the source agent with an incremental send that recalls ALPHA and not BETA, and, after the real `/tree` lifecycle empties the pool, the BETA branch must rewind the same agent without creating one and recall both. Missing Cursor auth exits as release-blocked, not skipped-ready. It is not a cache-benefit measurement; that is `node scripts/cache-benefit-experiment.mjs --samples 5` (#8, results in `docs/evidence/cursor-cache-benefit-2026-10-01.md`).
 
 ## JSONL spot-check
 

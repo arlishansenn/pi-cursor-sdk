@@ -1,0 +1,311 @@
+{
+	"model": "grok-4.6:slow",
+	"selection": {
+		"id": "grok-4.6",
+		"params": [
+			{
+				"id": "effort",
+				"value": "high"
+			},
+			{
+				"id": "fast",
+				"value": "false"
+			}
+		]
+	},
+	"samples": 5,
+	"results": [
+		{
+			"sample": 0,
+			"checks": {
+				"rewindToW1": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13491,
+					"cacheReadTokens": 13440
+				},
+				"rememberW3": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13626,
+					"cacheReadTokens": 13440
+				},
+				"listAfterW3": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13718,
+					"cacheReadTokens": 13568
+				},
+				"reopenRewindToW2": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13583,
+					"cacheReadTokens": 0
+				},
+				"rewindToW3": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13718,
+					"cacheReadTokens": 13568
+				}
+			},
+			"blobCount": 59,
+			"runCount": 7,
+			"activeRunAfter": null
+		},
+		{
+			"sample": 1,
+			"checks": {
+				"rewindToW1": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13406,
+					"cacheReadTokens": 13312
+				},
+				"rememberW3": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13546,
+					"cacheReadTokens": 13312
+				},
+				"listAfterW3": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13639,
+					"cacheReadTokens": 13440
+				},
+				"reopenRewindToW2": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13506,
+					"cacheReadTokens": 2304
+				},
+				"rewindToW3": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13639,
+					"cacheReadTokens": 3712
+				}
+			},
+			"blobCount": 59,
+			"runCount": 7,
+			"activeRunAfter": null
+		},
+		{
+			"sample": 2,
+			"checks": {
+				"rewindToW1": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13387,
+					"cacheReadTokens": 3712
+				},
+				"rememberW3": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13519,
+					"cacheReadTokens": 13312
+				},
+				"listAfterW3": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13608,
+					"cacheReadTokens": 13440
+				},
+				"reopenRewindToW2": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13486,
+					"cacheReadTokens": 13312
+				},
+				"rewindToW3": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13608,
+					"cacheReadTokens": 13568
+				}
+			},
+			"blobCount": 59,
+			"runCount": 7,
+			"activeRunAfter": null
+		},
+		{
+			"sample": 3,
+			"checks": {
+				"rewindToW1": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13393,
+					"cacheReadTokens": 13312
+				},
+				"rememberW3": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13518,
+					"cacheReadTokens": 13312
+				},
+				"listAfterW3": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13612,
+					"cacheReadTokens": 13440
+				},
+				"reopenRewindToW2": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13477,
+					"cacheReadTokens": 13312
+				},
+				"rewindToW3": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13612,
+					"cacheReadTokens": 13568
+				}
+			},
+			"blobCount": 59,
+			"runCount": 7,
+			"activeRunAfter": null
+		},
+		{
+			"sample": 4,
+			"checks": {
+				"rewindToW1": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13400,
+					"cacheReadTokens": 13312
+				},
+				"rememberW3": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13538,
+					"cacheReadTokens": 13312
+				},
+				"listAfterW3": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13628,
+					"cacheReadTokens": 13440
+				},
+				"reopenRewindToW2": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13488,
+					"cacheReadTokens": 13312
+				},
+				"rewindToW3": {
+					"runStatus": "finished",
+					"recalled": true,
+					"leaked": false,
+					"newBlobs": 8,
+					"newBlobLeak": false,
+					"scanSawWritten": true,
+					"inputTokens": 13628,
+					"cacheReadTokens": 13568
+				}
+			},
+			"blobCount": 59,
+			"runCount": 7,
+			"activeRunAfter": null
+		}
+	],
+	"passed": true,
+	"failure": null
+}

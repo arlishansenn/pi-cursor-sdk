@@ -347,7 +347,7 @@ async function prepareCursorLocalProviderTurn(
 					divergencePoint,
 					sessionAgentLease.store,
 					sessionAgentLease.sendState,
-					(copied) => resetSessionCursorAgent(divergedScopeKey, resetReason, { retainStore: copied }),
+					(keepStore) => resetSessionCursorAgent(divergedScopeKey, resetReason, { retainStore: keepStore }),
 				);
 			} else {
 				await resetSessionCursorAgent(divergedScopeKey, resetReason);

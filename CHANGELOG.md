@@ -9,7 +9,7 @@
 ### Changed
 
 - The platform smoke gate verifies macOS and Ubuntu only. Windows runtime code remains, but Windows is no longer a verified platform lane and the gate does not require Parallels.
-- Restore historical local Cursor checkpoints by default (#6). When pi context diverges, or a persisted session with local resume on starts a new agent after `/tree` or a process restart, and a recorded checkpoint matches, the extension copies it into a new local agent and continues incrementally instead of replaying the transcript. Copy, resume, or store failure falls back to create/bootstrap. Set `PI_CURSOR_CHECKPOINT_RESTORE=0` to always create/bootstrap.
+- Restore historical local Cursor checkpoints by default (#6). When pi context diverges, or a persisted session with local resume on starts a new agent after `/tree` or a process restart, and a recorded checkpoint matches, the extension rewinds that checkpoint's own idle local agent to it and continues incrementally instead of replaying the transcript, so the backend cache keeps following the same agent ID (#18). If the agent is busy or lacks the checkpoint, it copies the checkpoint into a new agent instead. A rewound agent is never resumed from a persisted resume handle again; only a checkpoint restores it. Rewind, copy, resume, or store failure falls back to create/bootstrap. Set `PI_CURSOR_CHECKPOINT_RESTORE=0` to always create/bootstrap.
 
 ### Fixed
 

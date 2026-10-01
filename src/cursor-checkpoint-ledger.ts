@@ -9,6 +9,7 @@ import { asRecord } from "./cursor-record-utils.js";
 import { getCursorSessionScopeKey } from "./cursor-session-scope.js";
 
 export const CURSOR_CHECKPOINT_LEDGER_ENTRY_TYPE = "cursor-sdk-checkpoint-ledger";
+export const CURSOR_CHECKPOINT_REWIND_ENTRY_TYPE = "cursor-sdk-checkpoint-rewind";
 
 export interface CursorCheckpointLedgerPoint {
 	version: 1;
@@ -26,9 +27,10 @@ export interface CursorCheckpointLedgerPoint {
 interface LedgerState {
 	appendEntry?: ExtensionAPI["appendEntry"];
 	points: CursorCheckpointLedgerPoint[];
+	rewoundAgentIds: Set<string>;
 }
 
-const state: LedgerState = { points: [] };
+const state: LedgerState = { points: [], rewoundAgentIds: new Set() };
 
 function sameStore(left: CursorSessionStoreIdentity, right: CursorSessionStoreIdentity): boolean {
 	return left.version === right.version && left.stateRoot === right.stateRoot;
@@ -127,6 +129,46 @@ export async function copyCursorCheckpointPoint(store: LocalAgentStore, point: C
 	}
 }
 
+/**
+ * Record that `agentId` is about to be rewound. Its head can then belong to any pi branch, so a
+ * persisted resume handle from another branch must not resume it; only a ledger point, which
+ * names its head, may. The marker spans all branches of the session.
+ */
+export function recordCursorCheckpointRewind(agentId: string): void {
+	state.rewoundAgentIds.add(agentId);
+	try {
+		state.appendEntry?.(CURSOR_CHECKPOINT_REWIND_ENTRY_TYPE, { version: 1, agentId });
+	} catch {
+		// The in-memory mark still covers this process.
+	}
+}
+
+export function isCursorCheckpointAgentRewound(agentId: string): boolean {
+	return state.rewoundAgentIds.has(agentId);
+}
+
+/** True when the point's own source agent is idle and still holds the point's head blob. */
+export async function canRewindCursorCheckpointSource(store: LocalAgentStore, point: CursorCheckpointLedgerPoint): Promise<boolean> {
+	const source = await store.agents.get({ agentId: point.sourceAgentId });
+	if (!source || source.activeRunId) return false;
+	return (await store.checkpoints.get({ agentId: point.sourceAgentId, blobId: point.headBlobId })) !== null;
+}
+
+/** Point the source agent's head back at the point's head. Its blobs, including later branches, stay. */
+export async function rewindCursorCheckpointSource(cwd: string, point: CursorCheckpointLedgerPoint): Promise<void> {
+	const opened = await openCursorSessionStore(cwd, point.storeIdentity);
+	try {
+		const source = await opened.store.agents.get({ agentId: point.sourceAgentId });
+		if (!source) throw new Error("Cursor checkpoint source agent is missing");
+		if (source.activeRunId) throw new Error("Cursor checkpoint source has an active run");
+		await opened.store.agents.update({
+			agent: { ...source, latestCheckpoint: { schemaVersion: 1, rootBlobId: point.headBlobId }, updatedAt: Date.now() },
+		});
+	} finally {
+		await opened.dispose().catch(() => undefined);
+	}
+}
+
 /** Delete an unused restore copy target (agent row + checkpoint blobs) from its store. */
 export async function deleteCursorCheckpointTarget(
 	cwd: string,
@@ -150,19 +192,32 @@ function restore(entries: readonly SessionEntry[]): void {
 	}
 }
 
+function restoreRewoundAgents(allEntries: readonly SessionEntry[]): void {
+	state.rewoundAgentIds = new Set();
+	for (const entry of allEntries) {
+		if (entry.type !== "custom" || entry.customType !== CURSOR_CHECKPOINT_REWIND_ENTRY_TYPE) continue;
+		const record = asRecord(entry.data);
+		if (record?.version === 1 && isCursorLocalAgentId(record.agentId)) state.rewoundAgentIds.add(record.agentId);
+	}
+}
+
 export function registerCursorCheckpointLedger(pi: { appendEntry: ExtensionAPI["appendEntry"]; on: ExtensionAPI["on"] }): void {
 	state.appendEntry = pi.appendEntry;
 	pi.on("session_start", (_event, ctx) => {
-		state.points = [];
 		restore(ctx.sessionManager.getEntries());
+		restoreRewoundAgents(ctx.sessionManager.getEntries());
 	});
-	pi.on("session_tree", (_event, ctx) => restore(ctx.sessionManager.getBranch()));
+	pi.on("session_tree", (_event, ctx) => {
+		restore(ctx.sessionManager.getBranch());
+		restoreRewoundAgents(ctx.sessionManager.getEntries());
+	});
 }
 
 export const __testUtils = {
 	reset(): void {
 		state.appendEntry = undefined;
 		state.points = [];
+		state.rewoundAgentIds = new Set();
 		void getCursorSessionScopeKey();
 	},
 	points: () => state.points.map((point) => ({ ...point, blobIds: [...point.blobIds] })),

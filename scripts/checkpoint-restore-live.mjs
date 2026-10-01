@@ -2,10 +2,11 @@
 /**
  * Live acceptance for default-on checkpoint restore through the production provider path.
  * Pi contexts drive streamCursor: ALPHA, then BETA, then a branch back to after ALPHA with the
- * pooled agent still live (context-divergence path). That branch must restore the ALPHA
- * checkpoint into a new agent and send incrementally (so an empty or bootstrap-replayed history
- * fails). Then the real /tree lifecycle handlers empty the pool and the BETA branch must restore
- * before any create (empty-pool path). The script never copies checkpoint data itself.
+ * pooled agent still live (context-divergence path). That branch must rewind the source agent to
+ * the ALPHA checkpoint and send incrementally (so an empty or bootstrap-replayed history fails),
+ * and must not recall BETA. Then the real /tree lifecycle handlers empty the pool and the BETA
+ * branch must rewind the same agent forward to the BETA checkpoint before any create (empty-pool
+ * path). The script never touches checkpoint data itself.
  */
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -73,9 +74,10 @@ async function journal() {
 	return readFileSync(actionsLog, "utf8").trim().split("\n").map((line) => JSON.parse(line));
 }
 
-/** Rows written after `from` must show a successful restore resume, no fallback, and an incremental send. */
-function assertRestored(rows, from, label) {
+/** Rows written after `from` must show a rewind restore, a successful resume, no fallback, and an incremental send. */
+function assertRewound(rows, from, label) {
 	const window = rows.slice(from);
+	if (window.find((row) => row.action === "checkpoint_restore")?.reason !== "rewind") throw new Error(`${label}: no checkpoint rewind`);
 	const resumed = window.find((row) => row.action === "agent_resume" && row.phase === "success");
 	if (!resumed) throw new Error(`${label}: no checkpoint resume`);
 	if (window.some((row) => row.reason === "checkpoint_restore_fallback")) throw new Error(`${label}: restore fell back to create`);
@@ -95,15 +97,13 @@ try {
 
 	let mark = (await journal()).length;
 	const alphaBranch = textOf(await turn([...alpha, alphaReply, user(LIST, 3)])).toUpperCase();
-	const alphaTarget = assertRestored(await journal(), mark, "ALPHA branch");
-	if (alphaTarget === sourceAgentId) throw new Error("ALPHA branch resumed the source agent instead of a copy");
+	if (assertRewound(await journal(), mark, "ALPHA branch") !== sourceAgentId) throw new Error("ALPHA branch did not rewind the source agent");
 	if (!alphaBranch.includes("ALPHA") || alphaBranch.includes("BETA")) throw new Error(`ALPHA branch answer is wrong: ${alphaBranch}`);
 
 	await navigateTree();
 	mark = (await journal()).length;
 	const betaBranch = textOf(await turn([...beta, betaReply, user(LIST, 4)])).toUpperCase();
-	const betaTarget = assertRestored(await journal(), mark, "BETA branch");
-	if (betaTarget === alphaTarget || betaTarget === sourceAgentId) throw new Error("BETA branch did not restore into a fresh copy");
+	if (assertRewound(await journal(), mark, "BETA branch") !== sourceAgentId) throw new Error("BETA branch did not rewind the source agent");
 	if (!betaBranch.includes("ALPHA") || !betaBranch.includes("BETA")) throw new Error(`BETA branch answer is wrong: ${betaBranch}`);
 
 	console.log("checkpoint restore live verification: passed");
