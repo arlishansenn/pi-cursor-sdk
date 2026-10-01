@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { parseOptionalEnvBoolean } from "./cursor-env-boolean.js";
 
 /**
- * One JSONL line per applied SDK turn usage. Numbers and identifiers only — never
+ * Raw callback measurements and applied Pi usage share this JSONL sink. Numbers and identifiers only — never
  * prompt text, tool args, or keys — so it stays safe to keep always-on.
  *
  * CURSOR_SDK_USAGE_LOG: unset → default path; a path → that file; "0"/"false"/"off" → disabled.
@@ -13,7 +13,7 @@ export const CURSOR_SDK_USAGE_LOG_ENV = "CURSOR_SDK_USAGE_LOG";
 
 const DEFAULT_CURSOR_USAGE_LOG_PATH = resolve(homedir(), ".pi/agent/data/pi-cursor-sdk/usage.jsonl");
 
-export type CursorUsageLogSource = "billed" | "turn" | "estimate";
+export type CursorUsageLogSource = "billed" | "turn" | "estimate" | "raw";
 
 /** Correlates a usage line with the action-log send that produced it. Keys match the actions log. */
 export interface CursorUsageLogCorrelation {
@@ -33,7 +33,14 @@ export interface CursorUsageLogRecord extends CursorUsageLogCorrelation {
 	outputTokens: number;
 	cacheReadTokens: number;
 	cacheWriteTokens: number;
-	totalTokens: number;
+	totalTokens?: number;
+	schemaVersion?: 2;
+	semantics?: "sdk_raw_turn" | "pi_usage_mapping";
+	inputSemantics?: "full_prompt" | "unknown";
+	usageEventIndex?: number;
+	stepIdentity?: "unknown";
+	runIdentity?: "sdk_run" | "unavailable";
+	cachePartitionValid?: boolean;
 }
 
 let ensuredLogDirs = new Set<string>();
