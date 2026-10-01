@@ -60,6 +60,7 @@ function makeBridgeRun(id: string, pendingPiToolCallIds: string[] = []): CursorP
 		resolveToolResults: vi.fn().mockResolvedValue(undefined),
 		resolveToolResultsFromContext: vi.fn().mockResolvedValue(undefined),
 		hasPendingPiToolCallId: vi.fn((piToolCallId: string) => pending.has(piToolCallId)),
+		hasPendingToolCalls: vi.fn(() => pending.size > 0),
 		isBridgeMcpToolCall: vi.fn(() => false),
 		setOnToolRequest: vi.fn(),
 		setDebugRecorder: vi.fn(),
@@ -257,6 +258,27 @@ describe("cursor live run coordinator", () => {
 		await vi.advanceTimersByTimeAsync(4);
 		expect(coordinator.count()).toBe(1);
 		await vi.advanceTimersByTimeAsync(1);
+		await vi.waitFor(() => expect(coordinator.count()).toBe(0));
+		expect(sdkCancel).toHaveBeenCalledTimes(1);
+		expect(abandonSessionAgent).toHaveBeenCalledWith("scope-1");
+	});
+
+	it("defers idle disposal while pi is still executing a bridge tool call", async () => {
+		vi.useFakeTimers();
+		const { coordinator, abandonSessionAgent } = makeCoordinator({ idleDisposeMs: 5 });
+		const bridgeRun = makeBridgeRun("bridge-1", ["tool-waiting-for-user"]);
+		const run = startRun(coordinator, { bridgeRun });
+		const sdkCancel = vi.fn().mockResolvedValue(undefined);
+		coordinator.attachSdkRun(run, { cancel: sdkCancel, id: "sdk-run-1" });
+
+		coordinator.requestIdleDispose(run);
+		await vi.advanceTimersByTimeAsync(50);
+		expect(coordinator.count()).toBe(1);
+		expect(sdkCancel).not.toHaveBeenCalled();
+		expect(abandonSessionAgent).not.toHaveBeenCalled();
+
+		vi.mocked(bridgeRun.hasPendingToolCalls).mockReturnValue(false);
+		await vi.advanceTimersByTimeAsync(5);
 		await vi.waitFor(() => expect(coordinator.count()).toBe(0));
 		expect(sdkCancel).toHaveBeenCalledTimes(1);
 		expect(abandonSessionAgent).toHaveBeenCalledWith("scope-1");

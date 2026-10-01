@@ -185,6 +185,10 @@ export class CursorPiToolBridgeRunImpl implements CursorPiToolBridgeRun {
 		return this.pendingByPiToolCallId.has(piToolCallId);
 	}
 
+	hasPendingToolCalls(): boolean {
+		return this.pendingCount() > 0;
+	}
+
 	cancelPendingPiToolCallId(piToolCallId: string, reason: string): boolean {
 		const pending = this.pendingByPiToolCallId.get(piToolCallId);
 		if (!pending) return false;
