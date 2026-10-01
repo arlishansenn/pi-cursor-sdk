@@ -15,7 +15,7 @@ import {
 } from "./cursor-session-agent.js";
 import type { CursorPiBridgeToolRequest } from "./cursor-pi-tool-bridge.js";
 import { buildCursorPrompt, computeCursorContextFingerprint, estimateCursorPromptTokens } from "./context.js";
-import { copyCursorCheckpointPoint, findCursorCheckpointPoint, markCursorCheckpointPointUnavailable } from "./cursor-checkpoint-ledger.js";
+import { copyCursorCheckpointPoint, deleteCursorCheckpointTarget, findCursorCheckpointPoint, markCursorCheckpointPointUnavailable } from "./cursor-checkpoint-ledger.js";
 import { releaseRetainedCursorSessionStore } from "./cursor-session-store.js";
 import { getCursorPromptOptions } from "./cursor-usage-accounting.js";
 import { getActiveContextToolNames } from "./cursor-context-tools.js";
@@ -359,6 +359,14 @@ async function prepareCursorLocalProviderTurn(
 			} catch (error) {
 				if (checkpointTarget) markCursorCheckpointPointUnavailable(sessionAgentScopeKey, fingerprint);
 				releaseRetainedCursorSessionStore(sessionAgentScopeKey);
+				if (checkpointRestore) {
+					try {
+						await deleteCursorCheckpointTarget(sessionAgentAcquireParams.cwd, checkpointRestore);
+					} catch (cleanupError) {
+						appendCursorAction({ action: "checkpoint_restore_cleanup", phase: "error", scopeKey: sessionAgentScopeKey, agentId: checkpointRestore.agentId, reason: "target_delete_failed" });
+						void cleanupError;
+					}
+				}
 				sessionAgentLease = await acquireSessionCursorAgent({ ...sessionAgentAcquireParams, forceCreate: true });
 				appendCursorAction({ action: "agent_resume_policy", phase: "error", scopeKey: sessionAgentScopeKey, reason: "checkpoint_restore_fallback", resumed: false });
 				void error;
