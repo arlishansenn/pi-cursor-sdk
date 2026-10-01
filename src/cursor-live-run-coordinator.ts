@@ -112,6 +112,7 @@ export interface CursorLiveRunCoordinator {
 	requestIdleDispose(run: CursorLiveRun): void;
 	release(run: CursorLiveRun): Promise<void>;
 	count(): number;
+	list(): CursorLiveRun[];
 }
 
 type CursorLiveBridgeMatcher = Pick<CursorPiToolBridgeRun, "hasPendingPiToolCallId">;
@@ -556,6 +557,10 @@ export function createCursorLiveRunCoordinator(deps: CursorLiveRunCoordinatorDep
 
 		count(): number {
 			return pendingRuns.size;
+		},
+
+		list(): CursorLiveRun[] {
+			return [...pendingRuns.values()];
 		},
 	};
 

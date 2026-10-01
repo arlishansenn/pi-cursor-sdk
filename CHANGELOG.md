@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The platform smoke gate verifies macOS and Ubuntu only. Windows runtime code remains, but Windows is no longer a verified platform lane and the gate does not require Parallels.
+
+### Fixed
+
+- Stop recreating the local Cursor agent after 20 successful incremental sends. The count remains diagnostic. Provider requests now bind `options.sessionId` to the existing session scope: a conflict with the pi session id fails before send, a missing id keeps the current scope, and direct calls isolate by request id.
+- Route pi compaction summarization requests (which carry a fresh random session id by design) through an isolated request scope during the compaction window opened by `session_before_compact` and closed by `session_compact` / `session_compact_failed`, instead of failing identity validation or entering the session agent pool.
+- Add an opt-in historical local Cursor checkpoint copy path, disabled by default behind `PI_CURSOR_CHECKPOINT_RESTORE=1`, with create/bootstrap fallback. The real SDK conversation acceptance gates are not complete, so it is implemented pending acceptance rather than enabled by default.
+
 ## 0.4.0 - 2026-09-26
 
 ### Breaking Changes

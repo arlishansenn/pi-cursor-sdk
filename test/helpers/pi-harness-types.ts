@@ -11,6 +11,7 @@ import type {
 	SessionBeforeTreeEvent,
 	SessionBeforeCompactEvent,
 	SessionCompactEvent,
+	SessionCompactFailedEvent,
 	SessionInfoChangedEvent,
 	SessionShutdownEvent,
 	SessionStartEvent,
@@ -55,6 +56,7 @@ export type HarnessEventName =
 	| "session_shutdown"
 	| "session_before_compact"
 	| "session_compact"
+	| "session_compact_failed"
 	| "session_tree"
 	| "session_before_tree"
 	| "tool_call"
@@ -78,6 +80,7 @@ export type HarnessEventMap = {
 	session_shutdown: SessionShutdownEvent;
 	session_before_compact: SessionBeforeCompactEvent;
 	session_compact: SessionCompactEvent;
+	session_compact_failed: SessionCompactFailedEvent;
 	session_tree: SessionTreeEvent;
 	session_before_tree: SessionBeforeTreeEvent;
 	tool_call: ToolCallEvent;

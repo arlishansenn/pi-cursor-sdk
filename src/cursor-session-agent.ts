@@ -8,6 +8,7 @@ import {
 	type CursorPiToolBridgeRun,
 } from "./cursor-pi-tool-bridge.js";
 import { computeCursorContextFingerprint } from "./context.js";
+import { recordCursorCheckpointPoint } from "./cursor-checkpoint-ledger.js";
 import { getCursorSessionFile, getCursorSessionScopeGeneration, getCursorSessionScopeKey } from "./cursor-session-scope.js";
 import {
 	getMatchingCursorSessionAgentResumeHandle,
@@ -18,6 +19,8 @@ import { loadCursorSdk, type CursorSdkModule } from "./cursor-sdk-runtime.js";
 import {
 	cursorSessionStoreIdentitiesEqual,
 	openCursorSessionStore,
+	retainCursorSessionStore,
+	releaseRetainedCursorSessionStore,
 	openCursorSessionStoreForScope,
 	type CursorSessionStoreIdentity,
 	type OpenCursorSessionStore,
@@ -41,7 +44,7 @@ export interface SessionCursorAgentLease {
 	created: boolean;
 	resumed?: boolean;
 	resumeNotice?: string;
-	commitSend(context: Context, bootstrapped: boolean): void;
+	commitSend(context: Context, bootstrapped: boolean): Promise<void>;
 	trackRunCompletion(completion: Promise<unknown>): void;
 }
 
@@ -133,6 +136,9 @@ interface SessionCursorAgentCreateParams {
 	debugRecorder?: CursorSdkEventDebugRecorder;
 	localResume?: boolean;
 	forceCreate?: boolean;
+	resumeAgentId?: string;
+	resumeStoreIdentity?: CursorSessionStoreIdentity;
+	checkpointSendState?: SessionCursorAgentSendState;
 	createAgent?: CursorSdkModule["Agent"]["create"];
 	resumeAgent?: CursorSdkModule["Agent"]["resume"];
 }
@@ -229,7 +235,7 @@ function buildSessionAgentPoolKey(scopeKey: string, params: SessionCursorAgentCr
 	].join("\0");
 }
 
-async function disposePoolEntry(entry: SessionCursorAgentPoolEntry, options?: { deadTransport?: boolean }): Promise<void> {
+async function disposePoolEntry(entry: SessionCursorAgentPoolEntry, options?: { deadTransport?: boolean; retainStore?: boolean }): Promise<void> {
 	if (!isActivePoolEntry(entry)) return;
 	entry.bridgeRun?.cancel("Cursor session agent disposed");
 	try {
@@ -250,10 +256,17 @@ async function disposePoolEntry(entry: SessionCursorAgentPoolEntry, options?: { 
 	} catch {
 		// disposal failure should not block session replacement
 	}
+	if (options?.retainStore) {
+		retainCursorSessionStore(entry.scopeKey, entry.sessionStore);
+		return;
+	}
+	// Close any retained store for this scope before disposing the current one so two
+	// handles on the same directory never race; a rejecting disposer must not escape.
+	await releaseRetainedCursorSessionStore(entry.scopeKey).catch(() => undefined);
 	await entry.sessionStore.dispose().catch(() => undefined);
 }
 
-async function disposePoolEntryForScope(scopeKey: string, options?: { terminal?: boolean }): Promise<void> {
+async function disposePoolEntryForScope(scopeKey: string, options?: { terminal?: boolean; retainStore?: boolean }): Promise<void> {
 	invalidateScopeCreations(scopeKey);
 	if (options?.terminal) {
 		terminalDisposedScopeGenerations.set(scopeKey, getCursorSessionScopeGeneration(scopeKey));
@@ -273,11 +286,34 @@ async function disposePoolEntryForScope(scopeKey: string, options?: { terminal?:
 		});
 		return;
 	}
-	await disposePoolEntry(entry, { deadTransport });
+	await disposePoolEntry(entry, { deadTransport, retainStore: options?.retainStore });
 }
 
 function createInitialSendState(): SessionCursorAgentSendState {
 	return { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0 };
+}
+
+export async function captureCommittedCursorCheckpoint(entry: SessionCursorAgentActiveEntry, context: Context): Promise<void> {
+	if (typeof entry.sessionStore.store.agents?.get !== "function" || typeof entry.sessionStore.store.checkpoints?.list !== "function") return;
+	try {
+		const before = await entry.sessionStore.store.agents.get({ agentId: entry.agent.agentId });
+		const headBlobId = before?.latestCheckpoint?.rootBlobId;
+		if (!before || !headBlobId || before.activeRunId) return;
+		const blobIds = [...(await entry.sessionStore.store.checkpoints.list({ filter: { agentIds: [entry.agent.agentId] } })).items];
+		const after = await entry.sessionStore.store.agents.get({ agentId: entry.agent.agentId });
+		if (after?.activeRunId || after?.latestCheckpoint?.rootBlobId !== headBlobId || !blobIds.includes(headBlobId)) return;
+		recordCursorCheckpointPoint({
+			scopeKey: entry.scopeKey,
+			contextFingerprint: entry.sendState.contextFingerprint,
+			messageCount: context.messages.length,
+			sourceAgentId: entry.agent.agentId,
+			blobIds,
+			headBlobId,
+			storeIdentity: entry.sessionStore.identity,
+		});
+	} catch {
+		appendCursorAction({ action: "agent_resume_policy", phase: "error", scopeKey: entry.scopeKey, agentId: entry.agent.agentId, reason: "checkpoint_capture_unavailable" });
+	}
 }
 
 function bindBridgeToolRequest(
@@ -406,8 +442,12 @@ function leaseFromEntry(
 		created,
 		resumed: entry.resumed,
 		...(resumeNotice ? { resumeNotice } : {}),
-		commitSend: (context, bootstrapped) => {
+		commitSend: async (context, bootstrapped) => {
 			commitSessionAgentSendForLease(scopeKey, entry.poolKey, entry.instanceId, context, bootstrapped);
+			const committed = sessionAgentsByScope.get(scopeKey);
+			if (isActivePoolEntry(committed) && committed.instanceId === entry.instanceId) {
+				await captureCommittedCursorCheckpoint(committed, context);
+			}
 		},
 		trackRunCompletion: (completion) => {
 			trackSessionAgentRunCompletionForLease(scopeKey, entry.poolKey, entry.instanceId, completion);
@@ -465,7 +505,7 @@ async function createSessionAgentEntry(
 		}
 
 		const resolvedPoolKey = buildSessionAgentPoolKey(scopeKey, params);
-		const resumeEligible = params.localResume === true && !params.forceCreate;
+		const resumeEligible = params.resumeAgentId !== undefined || (params.localResume === true && !params.forceCreate);
 		let createAgent = params.createAgent;
 		let resumeAgent = params.resumeAgent;
 		if (!createAgent || (resumeEligible && !resumeAgent)) {
@@ -473,13 +513,14 @@ async function createSessionAgentEntry(
 			createAgent ??= sdk.Agent.create;
 			resumeAgent ??= sdk.Agent.resume;
 		}
-		const resumeHandle = resumeEligible ? getMatchingCursorSessionAgentResumeHandle(resolvedPoolKey) : undefined;
+		const persistedResumeHandle = params.resumeAgentId ? undefined : resumeEligible ? getMatchingCursorSessionAgentResumeHandle(resolvedPoolKey) : undefined;
+		const resumeAgentId = params.resumeAgentId ?? persistedResumeHandle?.agentId;
 		const storeSelection = await openCursorSessionStoreForScope({
 			cwd: params.cwd,
 			scopeKey,
 			persistent: persistentStore,
-			hasResumeHandle: resumeHandle !== undefined,
-			resumeIdentity: resumeHandle?.storeIdentity,
+			hasResumeHandle: resumeAgentId !== undefined,
+			resumeIdentity: params.resumeStoreIdentity ?? persistedResumeHandle?.storeIdentity,
 		});
 		sessionStore = storeSelection.sessionStore;
 		const { identities } = storeSelection;
@@ -500,11 +541,11 @@ async function createSessionAgentEntry(
 		let agent: SDKAgent | undefined;
 		let effectiveSendState = sendState;
 		let resumed = false;
-		appendCursorAction({ action: "agent_resume_policy", phase: "decision", scopeKey, instanceId, resumeEligible, hasResumeHandle: !!resumeHandle, resumeAttemptAllowed, resumeFallback: storeSelection.resumeFallback, forceCreate: params.forceCreate });
-		if (resumeHandle && resumeAttemptAllowed && resumeAgent) {
+		appendCursorAction({ action: "agent_resume_policy", phase: "decision", scopeKey, instanceId, resumeEligible, hasResumeHandle: resumeAgentId !== undefined, resumeAttemptAllowed, resumeFallback: storeSelection.resumeFallback, forceCreate: params.forceCreate });
+		if (resumeAgentId && resumeAttemptAllowed && resumeAgent) {
 			try {
-				agent = await traceCursorAction({ action: "agent_resume", scopeKey, instanceId, agentId: resumeHandle.agentId, runtime: "local" }, () => resumeAgent(resumeHandle.agentId, buildAgentOptions()));
-				effectiveSendState = { ...resumeHandle.sendState };
+				agent = await traceCursorAction({ action: "agent_resume", scopeKey, instanceId, agentId: resumeAgentId, runtime: "local" }, () => resumeAgent(resumeAgentId, buildAgentOptions()));
+				effectiveSendState = { ...(params.checkpointSendState ?? persistedResumeHandle?.sendState ?? sendState) };
 				resumed = true;
 			} catch {
 				if (persistentStore) resumeNotice = LOCAL_RESUME_FALLBACK_NOTICE;
@@ -541,7 +582,6 @@ async function createSessionAgentEntry(
 
 export {
 	buildCursorSessionSendPrompt,
-	MAX_COMPLETED_INCREMENTAL_SENDS_BEFORE_REBOOTSTRAP,
 	planCursorSessionSend,
 	type CursorSessionSendPlan,
 } from "./cursor-session-send-policy.js";
@@ -666,9 +706,10 @@ export async function refreshSessionCursorAgentConfig(scopeKey: string = getCurs
 
 export async function resetSessionCursorAgent(
 	scopeKey: string = getCursorSessionScopeKey(),
-	reason: "explicit_reset" | "initial" | "context_divergence" | "incremental_threshold" | "process_resume" | "incremental" = "explicit_reset",
+	reason: "explicit_reset" | "initial" | "context_divergence" | "process_resume" | "incremental" = "explicit_reset",
+	options?: { retainStore?: boolean },
 ): Promise<void> {
-	await traceCursorAction({ action: "agent_reset", scopeKey, reason }, () => disposePoolEntryForScope(scopeKey));
+	await traceCursorAction({ action: "agent_reset", scopeKey, reason }, () => disposePoolEntryForScope(scopeKey, options));
 }
 
 export async function disposeSessionCursorAgent(scopeKey: string = getCursorSessionScopeKey()): Promise<void> {

@@ -9,7 +9,7 @@ import { getCursorSessionScopeKey } from "./cursor-session-scope.js";
 // Metadata only: never pass SDK options, errors, prompt text, or raw pool keys.
 type Action = "agent_create" | "agent_resume" | "agent_resume_policy" | "agent_lease" |
 	"agent_invalidate" | "agent_reset" | "agent_dispose" | "send_state_commit" |
-	"send_plan" | "prompt_build" | "agent_send";
+	"send_plan" | "prompt_build" | "agent_send" | "session_identity";
 interface ActionFields {
 	action: Action;
 	scopeKey?: string;
@@ -33,12 +33,16 @@ interface ActionFields {
 	resumeAttemptAllowed?: boolean;
 	resumeFallback?: boolean;
 	forceCreate?: boolean;
+	requestSessionId?: string;
+	lifecycleSessionId?: string;
 }
 type ActionRecord = ActionFields & { phase: "start" | "success" | "error" | "decision"; durationMs?: number };
-const actionTurn = new AsyncLocalStorage<{ turnId: string; scopeKey: string }>();
+const actionTurn = new AsyncLocalStorage<{ turnId: string }>();
 
 export function withCursorActionTurn<T>(operation: () => T): T {
-	return actionTurn.run({ turnId: randomUUID(), scopeKey: getCursorSessionScopeKey() }, operation);
+	const current = actionTurn.getStore();
+	if (current) return operation();
+	return actionTurn.run({ turnId: randomUUID() }, operation);
 }
 
 /** Turn id of the action-log turn this code runs in, for correlating other logs (e.g. usage). */
@@ -56,19 +60,20 @@ let writeFailures = 0;
 
 export function appendCursorAction(record: ActionRecord): void {
 	try {
-		const raw = process.env.CURSOR_SDK_ACTIONS_LOG?.trim();
-		if (parseOptionalEnvBoolean(raw) === false) return;
 		if (pending >= 1024) { dropped++; return; }
-		const path = raw ? resolve(raw) : defaultPath;
-		const { scopeKey = actionTurn.getStore()?.scopeKey ?? getCursorSessionScopeKey(), ...fields } = record;
+		const { scopeKey = getCursorSessionScopeKey(), ...fields } = record;
 		const line = JSON.stringify({
 			...fields, turnId: actionTurn.getStore()?.turnId, schemaVersion: 1, ts: new Date().toISOString(), pid: process.pid, processId, seq: ++seq,
 			scopeId: createHash("sha256").update(scopeKey).digest("hex").slice(0, 16),
 			dropped, writeFailures,
 		}) + "\n";
 		pending++;
-		// One bounded FIFO per process. Callers never wait for mkdir/write completion.
+		// Resolve the destination at write time. A caller can install CURSOR_SDK_ACTIONS_LOG
+		// after this function schedules the line, and the line must follow that destination.
 		tail = tail.then(async () => {
+			const raw = process.env.CURSOR_SDK_ACTIONS_LOG?.trim();
+			if (parseOptionalEnvBoolean(raw) === false) return;
+			const path = raw ? resolve(raw) : defaultPath;
 			await mkdir(dirname(path), { recursive: true, mode: 0o700 });
 			await appendFile(path, line, { mode: 0o600 });
 		}).catch(() => { writeFailures++; }).finally(() => { pending--; });
@@ -98,7 +103,7 @@ function startCursorAction<T>(
 	fields: ActionFields,
 	resultFields?: (result: T) => Pick<ActionFields, "agentId" | "runId" | "promptChars" | "imageCount">,
 ) {
-	const snapshot = { ...fields, scopeKey: fields.scopeKey ?? actionTurn.getStore()?.scopeKey ?? getCursorSessionScopeKey(), operationId: randomUUID() };
+	const snapshot = { ...fields, scopeKey: fields.scopeKey ?? getCursorSessionScopeKey(), operationId: randomUUID() };
 	const start = performance.now();
 	appendCursorAction({ ...snapshot, phase: "start" });
 	return {

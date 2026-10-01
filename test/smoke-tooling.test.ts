@@ -195,13 +195,6 @@ try {
 		}
 	});
 
-	it("allows Windows VM tests more scheduling headroom without weakening normal npm tests", () => {
-		const windowsBuild = readFileSync("scripts/platform-smoke/platform-build-windows.ps1", "utf8");
-		expect(windowsBuild).toContain("npm.cmd run check:platform-smoke -- --testTimeout=15000");
-		expect(windowsBuild).toContain("npm.cmd test -- --testTimeout=15000");
-		expect(readFileSync("package.json", "utf8")).toContain('"test": "vitest run"');
-	});
-
 	it("runs and documents required platform targets sequentially to avoid shared host and API contention", () => {
 		const platformSmoke = readFileSync("scripts/platform-smoke.mjs", "utf8");
 		expect(platformSmoke).toContain("for (const targetName of targets)");
@@ -265,7 +258,7 @@ try {
 		const invalidTarget = run(process.execPath, ["scripts/platform-smoke.mjs", "run", "--target", "plan9"]);
 		expect(invalidTarget.status).toBe(2);
 		expect(invalidTarget.stderr).toContain("unknown target(s): plan9");
-		expect(invalidTarget.stderr).toContain("macos, ubuntu, windows-native");
+		expect(invalidTarget.stderr).toContain("macos, ubuntu");
 
 		const invalidSuite = run(process.execPath, ["scripts/platform-smoke.mjs", "run", "--suite", "stdout-only"]);
 		expect(invalidSuite.status).toBe(2);

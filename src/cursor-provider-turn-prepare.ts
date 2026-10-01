@@ -14,7 +14,9 @@ import {
 	type CursorSessionSendPlan,
 } from "./cursor-session-agent.js";
 import type { CursorPiBridgeToolRequest } from "./cursor-pi-tool-bridge.js";
-import { buildCursorPrompt, estimateCursorPromptTokens } from "./context.js";
+import { buildCursorPrompt, computeCursorContextFingerprint, estimateCursorPromptTokens } from "./context.js";
+import { copyCursorCheckpointPoint, findCursorCheckpointPoint, markCursorCheckpointPointUnavailable } from "./cursor-checkpoint-ledger.js";
+import { releaseRetainedCursorSessionStore } from "./cursor-session-store.js";
 import { getCursorPromptOptions } from "./cursor-usage-accounting.js";
 import { getActiveContextToolNames } from "./cursor-context-tools.js";
 import type { CursorLiveRun } from "./cursor-live-run-coordinator.js";
@@ -327,8 +329,40 @@ async function prepareCursorLocalProviderTurn(
 		let promptOptions = buildPromptOptions(sendPlan);
 		let prompt = buildCursorSessionSendPrompt(context, promptOptions, sendPlan);
 		if (sendPlan.resetAgent) {
-			await resetSessionCursorAgent(sessionAgentScopeKey, sendPlan.reason);
-			sessionAgentLease = await acquireSessionCursorAgent({ ...sessionAgentAcquireParams, forceCreate: true });
+			const fingerprint = computeCursorContextFingerprint(context);
+			const checkpointRestoreEnabled = process.env.PI_CURSOR_CHECKPOINT_RESTORE === "1";
+			const checkpointTarget = checkpointRestoreEnabled && sendPlan.reason === "context_divergence"
+				? findCursorCheckpointPoint(sessionAgentScopeKey, fingerprint, sessionAgentLease.storeIdentity)
+				: undefined;
+			let checkpointRestore: { agentId: string; storeIdentity: typeof sessionAgentLease.storeIdentity } | undefined;
+			if (checkpointTarget) {
+				try {
+					checkpointRestore = {
+						agentId: await copyCursorCheckpointPoint(sessionAgentLease.store, checkpointTarget),
+						storeIdentity: sessionAgentLease.storeIdentity,
+					};
+				} catch {
+					markCursorCheckpointPointUnavailable(sessionAgentScopeKey, fingerprint);
+				}
+			}
+			await resetSessionCursorAgent(sessionAgentScopeKey, sendPlan.reason, { retainStore: checkpointRestore !== undefined });
+			try {
+				sessionAgentLease = checkpointRestore
+					? await acquireSessionCursorAgent({
+						...sessionAgentAcquireParams,
+						forceCreate: false,
+						resumeAgentId: checkpointRestore.agentId,
+						resumeStoreIdentity: checkpointRestore.storeIdentity,
+						checkpointSendState: { ...sessionAgentLease.sendState, contextFingerprint: fingerprint, bootstrapped: true },
+					})
+					: await acquireSessionCursorAgent({ ...sessionAgentAcquireParams, forceCreate: true });
+			} catch (error) {
+				if (checkpointTarget) markCursorCheckpointPointUnavailable(sessionAgentScopeKey, fingerprint);
+				releaseRetainedCursorSessionStore(sessionAgentScopeKey);
+				sessionAgentLease = await acquireSessionCursorAgent({ ...sessionAgentAcquireParams, forceCreate: true });
+				appendCursorAction({ action: "agent_resume_policy", phase: "error", scopeKey: sessionAgentScopeKey, reason: "checkpoint_restore_fallback", resumed: false });
+				void error;
+			}
 			sessionAgentScopeKey = sessionAgentLease.scopeKey;
 			bridgeToolNames = new Set(sessionAgentLease.bridgeRun?.snapshot.tools.map((tool) => tool.mcpToolName) ?? []);
 			includePiBridgeGuidance = bridgeToolNames.size > 0;

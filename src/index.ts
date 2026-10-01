@@ -9,6 +9,7 @@ import { registerCursorSessionScope } from "./cursor-session-scope.js";
 import { registerCursorSessionAgentLifecycle } from "./cursor-session-agent-lifecycle.js";
 import { registerCursorSessionAgentLineage } from "./cursor-session-agent-lineage.js";
 import { registerCursorSessionAgentResume } from "./cursor-session-agent-resume.js";
+import { registerCursorCheckpointLedger } from "./cursor-checkpoint-ledger.js";
 import { streamCursorLazy } from "./cursor-provider-lazy.js";
 import { CURSOR_API_KEY_CONFIG_VALUE, resolveCursorApiKey } from "./cursor-api-key.js";
 import { registerCursorFallbackIssueWarning } from "./cursor-fallback-warning.js";
@@ -23,6 +24,7 @@ type CursorExtensionApi =
 	& Parameters<typeof registerCursorSessionAgentLifecycle>[0]
 	& Parameters<typeof registerCursorSessionAgentLineage>[0]
 	& Parameters<typeof registerCursorSessionAgentResume>[0]
+	& Parameters<typeof registerCursorCheckpointLedger>[0]
 	& Parameters<typeof registerCursorRuntimeControls>[0]
 	& Parameters<typeof registerCursorNativeToolDisplay>[0]
 	& Parameters<typeof registerCursorQuestionTool>[0]
@@ -54,6 +56,7 @@ export default async function (pi: CursorExtensionApi) {
 	registerCursorSessionAgentLineage(pi);
 	registerCursorSessionAgentLifecycle(pi);
 	registerCursorSessionAgentResume(pi);
+	registerCursorCheckpointLedger(pi);
 	pi.on("session_before_compact", async () => {
 		await prepareCursorSessionForCompaction();
 	});

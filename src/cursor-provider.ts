@@ -22,8 +22,20 @@ import { installCursorSdkProcessErrorGuard } from "./cursor-sdk-process-error-gu
 import { sanitizeCursorProviderError } from "./cursor-provider-errors.js";
 import { resolveCursorApiKey } from "./cursor-api-key.js";
 import { CursorProviderTurnRunner } from "./cursor-provider-turn-runner.js";
-import { getCursorSessionScopeKey } from "./cursor-session-scope.js";
+import { appendCursorAction, withCursorActionTurn } from "./cursor-actions-log.js";
+import {
+	assertCursorRequestScope,
+	CursorSessionIdentityConflictError,
+	endCursorSummarizationWindow,
+	getCursorSessionId,
+	getCursorSessionScopeGeneration,
+	getCursorSessionScopeKey,
+	isCursorSummarizationWindow,
+	runWithCursorRequestIsolation,
+	runWithCursorRequestSession,
+} from "./cursor-session-scope.js";
 import { runExclusiveCursorSessionTurn, __testUtils as cursorSessionTurnQueueTestUtils } from "./cursor-session-turn-queue.js";
+import { disposeSessionCursorAgent } from "./cursor-session-agent.js";
 
 function makeInitialMessage(model: Model<Api>): AssistantMessage {
 	return {
@@ -68,11 +80,67 @@ export function streamCursor(
 
 		try {
 			stream.push({ type: "start", partial });
-			await runExclusiveCursorSessionTurn(
-				getCursorSessionScopeKey(),
-				() => runner.run(installCursorSdkProcessErrorGuard()),
-				options?.signal,
-			);
+			const requestSessionId = options?.sessionId;
+			await withCursorActionTurn(async () => {
+				const lifecycleSessionId = getCursorSessionId();
+				if (requestSessionId && lifecycleSessionId && requestSessionId === lifecycleSessionId) {
+					// A normal turn for the active session means any stale summarization window is over.
+					endCursorSummarizationWindow();
+				}
+				const mismatchedRequest = Boolean(requestSessionId && lifecycleSessionId && requestSessionId !== lifecycleSessionId);
+				// Pi compaction summarization carries a random per-request id by design; inside the
+				// compaction window such requests run isolated instead of failing identity validation.
+				const summarizationRequest = mismatchedRequest && isCursorSummarizationWindow();
+				const sessionConflict = mismatchedRequest && !summarizationRequest;
+				let summarizationScopeKey: string | undefined;
+				const invokeScoped = () => runWithCursorRequestSession(sessionConflict ? undefined : requestSessionId, async () => {
+					if (sessionConflict) {
+						appendCursorAction({
+							action: "session_identity",
+							phase: "error",
+							reason: "session_id_conflict",
+							requestSessionId,
+							lifecycleSessionId,
+						});
+						throw new CursorSessionIdentityConflictError();
+					}
+					if (requestSessionId) {
+						appendCursorAction({
+							action: "session_identity",
+							phase: "decision",
+							reason: summarizationRequest ? "summarization_request" : "bound",
+							requestSessionId,
+							...(lifecycleSessionId ? { lifecycleSessionId } : {}),
+						});
+					}
+					const acceptedScopeKey = getCursorSessionScopeKey();
+					summarizationScopeKey = acceptedScopeKey;
+					const acceptedGeneration = getCursorSessionScopeGeneration(acceptedScopeKey);
+					await runExclusiveCursorSessionTurn(
+						acceptedScopeKey,
+						() => {
+							assertCursorRequestScope(acceptedScopeKey, acceptedGeneration);
+							return runner.run(installCursorSdkProcessErrorGuard(), () => {
+								assertCursorRequestScope(acceptedScopeKey, acceptedGeneration);
+							});
+						},
+						options?.signal,
+					);
+				});
+				if (summarizationRequest) {
+					try {
+						await runWithCursorRequestIsolation(requestSessionId!, invokeScoped);
+					} finally {
+						if (summarizationScopeKey) {
+							// The summarization id never repeats; release its isolated agent and store so
+							// repeated compaction does not accumulate SDK resources.
+							await disposeSessionCursorAgent(summarizationScopeKey).catch(() => undefined);
+						}
+					}
+				} else {
+					await invokeScoped();
+				}
+			});
 		} catch (error) {
 			await runner.handleOuterCatch(error);
 		}

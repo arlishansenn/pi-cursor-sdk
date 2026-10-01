@@ -20,8 +20,8 @@ import {
 import { runAssertions } from "./assertions.mjs";
 import { runOnLease } from "./crabbox-runner.mjs";
 
-export function platformFor(targetName) {
-	return targetName === "windows-native" ? "powershell" : "posix";
+export function platformFor(_targetName) {
+	return "posix";
 }
 
 export function finalizeSuiteArtifacts(

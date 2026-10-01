@@ -51,11 +51,17 @@ export class CursorProviderTurnRunner {
 		if (this.options?.signal?.aborted) throw new CursorLiveRunAbortError();
 	}
 
-	run(sdkProcessErrorGuard: ReturnType<typeof installCursorSdkProcessErrorGuard>): Promise<void> {
-		return withCursorActionTurn(() => this.runTurn(sdkProcessErrorGuard));
+	run(
+		sdkProcessErrorGuard: ReturnType<typeof installCursorSdkProcessErrorGuard>,
+		assertRequestScope: () => void = () => undefined,
+	): Promise<void> {
+		return withCursorActionTurn(() => this.runTurn(sdkProcessErrorGuard, assertRequestScope));
 	}
 
-	private async runTurn(sdkProcessErrorGuard: ReturnType<typeof installCursorSdkProcessErrorGuard>): Promise<void> {
+	private async runTurn(
+		sdkProcessErrorGuard: ReturnType<typeof installCursorSdkProcessErrorGuard>,
+		assertRequestScope: () => void,
+	): Promise<void> {
 		const { stream, partial, model, context, options, sdkEventDebugRef } = this.params;
 		let prepared: CursorProviderTurnPrepareResult | undefined;
 		let sendResult: CursorProviderTurnSendResult | undefined;
@@ -89,8 +95,10 @@ export class CursorProviderTurnRunner {
 				) {
 					return;
 				}
+				assertRequestScope();
 			}
 			this.throwIfAborted();
+			assertRequestScope();
 
 			this.resolvedApiKey = requireCursorApiKey(options);
 			prepared = await prepareCursorProviderTurn({

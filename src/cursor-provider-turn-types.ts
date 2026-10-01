@@ -57,7 +57,7 @@ interface CursorProviderTurnRuntimeBase {
  */
 export interface CursorProviderTurnLifecycle {
 	trackRunCompletion(completion: Promise<unknown>): void;
-	commitSend(context: Context, bootstrapped: boolean): void;
+	commitSend(context: Context, bootstrapped: boolean): void | Promise<void>;
 	abandon(): Promise<void>;
 	dispose(): Promise<void>;
 }

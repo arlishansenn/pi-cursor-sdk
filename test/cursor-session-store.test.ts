@@ -8,6 +8,8 @@ import {
 	hashCursorSessionStoreScope,
 	openCursorSessionStore,
 	openCursorSessionStoreForScope,
+	releaseRetainedCursorSessionStore,
+	retainCursorSessionStore,
 	__testUtils as storeTestUtils,
 } from "../src/cursor-session-store.js";
 
@@ -29,6 +31,36 @@ describe("cursor session store identity", () => {
 		expect(anonymous).not.toBe(buildCursorSessionStateRoot("/sdk/workspace", "__anonymous__", false));
 		expect(anonymous).toContain(join(tmpdir(), "pi-cursor-sdk-"));
 		expect(anonymous).toContain("pi-sessions");
+	});
+
+	it("transfers a retained ephemeral store: old handle closes, directory survives until the new owner disposes", async () => {
+		storeTestUtils.setSdkOperations(undefined);
+		const root = mkdtempSync(join(tmpdir(), "pi-cursor-retained-transfer-"));
+		const first = await openCursorSessionStoreForScope({ cwd: root, scopeKey: "retained-scope", persistent: false, hasResumeHandle: false });
+		const retainedRoot = dirname(dirname(first.sessionStore.identity.stateRoot));
+		retainCursorSessionStore("retained-scope", first.sessionStore);
+
+		const second = await openCursorSessionStoreForScope({
+			cwd: root,
+			scopeKey: "retained-scope",
+			persistent: false,
+			hasResumeHandle: true,
+			resumeIdentity: first.sessionStore.identity,
+		});
+
+		try {
+			expect(second.resumeAttemptAllowed).toBe(true);
+			expect(second.sessionStore.identity.stateRoot).toBe(first.sessionStore.identity.stateRoot);
+			// Old handle closed by the transfer, but the directory belongs to the new opener now.
+			expect(existsSync(retainedRoot)).toBe(true);
+			// A second open on the same scope must not see the stale retained entry again.
+			await expect(releaseRetainedCursorSessionStore("retained-scope")).resolves.toBeUndefined();
+			expect(existsSync(retainedRoot)).toBe(true);
+		} finally {
+			await second.sessionStore.dispose();
+		}
+		expect(existsSync(retainedRoot)).toBe(false);
+		rmSync(root, { recursive: true, force: true });
 	});
 
 	it("never resumes a fileless acquisition from the shared default store", async () => {

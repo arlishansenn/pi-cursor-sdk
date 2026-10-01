@@ -130,10 +130,7 @@ describe("streamCursor local resume", () => {
 		expect(rows.every((row) => typeof row.turnId === "string")).toBe(true);
 	});
 
-	it.each([
-		{ reason: "incremental_threshold", fingerprint: (context: ReturnType<typeof makeContext>) => computeCursorContextFingerprint(context), count: 20 },
-		{ reason: "context_divergence", fingerprint: () => "stale-context", count: 0 },
-	])("replaces a resumed agent with Agent.create for $reason while preserving resume persistence", async ({ reason, fingerprint, count }) => {
+	it("replaces a resumed agent with Agent.create for context_divergence while preserving resume persistence", async () => {
 		process.env.PI_CURSOR_LOCAL_RESUME = "1";
 		const context = makeContext();
 		const oldDispose = vi.fn().mockResolvedValue(undefined);
@@ -149,7 +146,7 @@ describe("streamCursor local resume", () => {
 			wait: vi.fn().mockResolvedValue({ id: "run-new", status: "finished", result: "done" }),
 		}));
 		mockCreatedAgent({ agentId: "agent-new", send: newSend });
-		seedResumeHandle(`/tmp/reset-${count}.jsonl`, fingerprint(context), "agent-old", count);
+		seedResumeHandle("/tmp/reset-0.jsonl", "stale-context", "agent-old", 0);
 
 		await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), context, { apiKey: "test-key" }));
 
@@ -159,7 +156,7 @@ describe("streamCursor local resume", () => {
 		expect(newSend).toHaveBeenCalledTimes(1);
 		expect(resumeTestUtils.state.pendingHandle).toMatchObject({ agentId: "agent-new" });
 		const rows = await journal();
-		const decision = rows.findIndex((row) => row.action === "send_plan" && row.reason === reason);
+		const decision = rows.findIndex((row) => row.action === "send_plan" && row.reason === "context_divergence");
 		const create = rows.findIndex((row) => row.action === "agent_create" && row.phase === "start");
 		const send = rows.findIndex((row) => row.action === "agent_send" && row.phase === "start");
 		expect(decision).toBeGreaterThan(-1);
