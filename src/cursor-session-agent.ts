@@ -8,7 +8,7 @@ import {
 	type CursorPiToolBridgeRun,
 } from "./cursor-pi-tool-bridge.js";
 import { computeCursorContextFingerprint } from "./context.js";
-import { recordCursorCheckpointPoint } from "./cursor-checkpoint-ledger.js";
+import { isCursorCheckpointAgentRewound, recordCursorCheckpointPoint } from "./cursor-checkpoint-ledger.js";
 import { getCursorSessionFile, getCursorSessionScopeGeneration, getCursorSessionScopeKey } from "./cursor-session-scope.js";
 import {
 	getMatchingCursorSessionAgentResumeHandle,
@@ -482,10 +482,14 @@ async function tryLeaseReadyEntry(
 	return leaseFromEntry(readyEntry, scopeKey, params, created);
 }
 
-/** Persisted local-resume handle the next create would resume; explicit resume targets bypass it. */
+/**
+ * Persisted local-resume handle the next create would resume; explicit resume targets bypass it.
+ * A rewound agent's head may belong to another pi branch, so its handles are not trusted.
+ */
 function getPersistedResumeHandle(poolKey: string, params: SessionCursorAgentCreateParams) {
 	if (params.resumeAgentId !== undefined || params.localResume !== true || params.forceCreate) return undefined;
-	return getMatchingCursorSessionAgentResumeHandle(poolKey);
+	const handle = getMatchingCursorSessionAgentResumeHandle(poolKey);
+	return handle && !isCursorCheckpointAgentRewound(handle.agentId) ? handle : undefined;
 }
 
 async function createSessionAgentEntry(

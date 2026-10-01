@@ -494,11 +494,11 @@ export function assertTurnMetadata(label, turn, expected) {
 		fail(`${label} did not record local agent id`, turn.metadataPath);
 }
 
-/** Default-on checkpoint restore: a resumed copy of a pre-divergence checkpoint, never the source agent. */
-export function assertRestoredCopyOf(label, turn, agentId) {
+/** Default-on checkpoint restore: the source agent rewound to a pre-divergence checkpoint and resumed. */
+export function assertRewoundTo(label, turn, agentId) {
 	assertTurnMetadata(label, turn, { resumedAgent: true });
-	if (turn.metadata.run.agentId === agentId)
-		fail(`${label} resumed the source agent instead of a checkpoint copy`, turn.metadataPath);
+	if (turn.metadata.run.agentId !== agentId)
+		fail(`${label} did not rewind the source agent`, turn.metadataPath);
 	if (turn.metadata.providerMeta?.sendPlan?.mode !== "incremental")
 		fail(`${label} did not send incrementally from the restored checkpoint`, turn.metadataPath);
 }

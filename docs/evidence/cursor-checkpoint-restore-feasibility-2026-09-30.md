@@ -40,7 +40,7 @@ A later temp-store probe, using the same local `grok-4.6` setup, tried the prefe
 
 The persisted blob set still contained the second marker after that send. The first 11 blob bytes remained intact, all three run rows finished, and a second head update back to the second checkpoint also accepted a send. No active run remained. Those facts do not satisfy branch isolation: one agent row retains both branches' checkpoint bytes, and the public blob API exposes no ownership link that distinguishes the rewound head from the discarded branch.
 
-Same-agent rewind is not accepted as the default. The retained second marker shows the store still contains the discarded branch, but this probe did not decode the rewound conversation, so it does not by itself prove that the new head includes that marker. Rewind was not interrupted, and no concurrent writer was run. Sanitized output is in `/tmp/issue3-stage2/rewind.stdout.txt` when that temp probe output is still present. The production provider does not enable either rewind or blob copy.
+Superseded on 2026-10-01 by `cursor-rewind-isolation-2026-10-01.md`, which shows isolation; restore now prefers same-agent rewind (#18). On 2026-09-30, same-agent rewind was not accepted as the default. The retained second marker shows the store still contains the discarded branch, but this probe did not decode the rewound conversation, so it does not by itself prove that the new head includes that marker. Rewind was not interrupted, and no concurrent writer was run. Sanitized output is in `/tmp/issue3-stage2/rewind.stdout.txt` when that temp probe output is still present. The production provider does not enable either rewind or blob copy.
 
 ## Production enablement gate
 

@@ -2,10 +2,13 @@ import type { LocalAgentStore } from "@cursor/sdk";
 import type { Context } from "@earendil-works/pi-ai";
 import { appendCursorAction } from "./cursor-actions-log.js";
 import {
+	canRewindCursorCheckpointSource,
 	copyCursorCheckpointPoint,
 	deleteCursorCheckpointTarget,
 	findCursorCheckpointPoint,
 	markCursorCheckpointPointUnavailable,
+	recordCursorCheckpointRewind,
+	rewindCursorCheckpointSource,
 	type CursorCheckpointLedgerPoint,
 } from "./cursor-checkpoint-ledger.js";
 import { parseEnvBoolean } from "./cursor-env-boolean.js";
@@ -25,9 +28,12 @@ export function isCursorCheckpointRestoreEnabled(): boolean {
 }
 
 /**
- * Copy `point` into a new agent and resume it. On any copy, resume, or store failure, mark the
- * point unavailable, delete the unused copy target, and create a new agent instead.
- * `beforeAcquire` runs once after the copy attempt so callers can release the copy store.
+ * Restore `point` and resume it. Prefer rewinding the point's own source agent, because Cursor's
+ * backend cache follows agentId continuity and a copy starts cold. When the source is busy or
+ * lacks the head blob, copy the point into a new agent instead. On any rewind, copy, resume, or
+ * store failure, mark the point unavailable, delete an unused copy target, and create a new agent.
+ * `beforeAcquire` runs once before the source row changes (rewind) or after the copy attempt, so
+ * callers can release the pooled agent and the copy store; `true` asks to keep the store.
  */
 export async function acquireCursorAgentFromCheckpoint(
 	acquireParams: SessionCursorAgentAcquireParams,
@@ -35,8 +41,21 @@ export async function acquireCursorAgentFromCheckpoint(
 	point: CursorCheckpointLedgerPoint,
 	store: LocalAgentStore,
 	sendState: SessionCursorAgentSendState,
-	beforeAcquire: (copied: boolean) => Promise<void>,
+	beforeAcquire: (keepStore: boolean) => Promise<void>,
 ): Promise<SessionCursorAgentLease> {
+	if (await canRewindCursorCheckpointSource(store, point).catch(() => false)) {
+		await beforeAcquire(true);
+		try {
+			recordCursorCheckpointRewind(point.sourceAgentId);
+			await rewindCursorCheckpointSource(acquireParams.cwd, point);
+		} catch {
+			markCursorCheckpointPointUnavailable(scopeKey, point.contextFingerprint);
+			await releaseRetainedCursorSessionStore(scopeKey);
+			return createAfterRestoreFailure(acquireParams, scopeKey);
+		}
+		appendCursorAction({ action: "checkpoint_restore", phase: "decision", scopeKey, agentId: point.sourceAgentId, reason: "rewind" });
+		return resumeRestoredAgent(acquireParams, scopeKey, point, sendState, point.sourceAgentId, async () => undefined);
+	}
 	let targetAgentId: string | undefined;
 	try {
 		targetAgentId = await copyCursorCheckpointPoint(store, point);
@@ -45,26 +64,45 @@ export async function acquireCursorAgentFromCheckpoint(
 	}
 	await beforeAcquire(targetAgentId !== undefined);
 	if (!targetAgentId) return acquireSessionCursorAgent({ ...acquireParams, forceCreate: true });
+	const copyTargetId = targetAgentId;
+	appendCursorAction({ action: "checkpoint_restore", phase: "decision", scopeKey, agentId: copyTargetId, reason: "copy" });
+	return resumeRestoredAgent(acquireParams, scopeKey, point, sendState, copyTargetId, async () => {
+		try {
+			await deleteCursorCheckpointTarget(acquireParams.cwd, { agentId: copyTargetId, storeIdentity: point.storeIdentity });
+		} catch {
+			appendCursorAction({ action: "checkpoint_restore_cleanup", phase: "error", scopeKey, agentId: copyTargetId, reason: "target_delete_failed" });
+		}
+	});
+}
+
+async function resumeRestoredAgent(
+	acquireParams: SessionCursorAgentAcquireParams,
+	scopeKey: string,
+	point: CursorCheckpointLedgerPoint,
+	sendState: SessionCursorAgentSendState,
+	agentId: string,
+	cleanupOnFailure: () => Promise<void>,
+): Promise<SessionCursorAgentLease> {
 	try {
 		return await acquireSessionCursorAgent({
 			...acquireParams,
 			forceCreate: false,
-			resumeAgentId: targetAgentId,
+			resumeAgentId: agentId,
 			resumeStoreIdentity: point.storeIdentity,
 			checkpointSendState: { ...sendState, contextFingerprint: point.contextFingerprint, bootstrapped: true },
 		});
 	} catch {
 		markCursorCheckpointPointUnavailable(scopeKey, point.contextFingerprint);
 		await releaseRetainedCursorSessionStore(scopeKey);
-		try {
-			await deleteCursorCheckpointTarget(acquireParams.cwd, { agentId: targetAgentId, storeIdentity: point.storeIdentity });
-		} catch {
-			appendCursorAction({ action: "checkpoint_restore_cleanup", phase: "error", scopeKey, agentId: targetAgentId, reason: "target_delete_failed" });
-		}
-		const lease = await acquireSessionCursorAgent({ ...acquireParams, forceCreate: true });
-		appendCursorAction({ action: "agent_resume_policy", phase: "error", scopeKey, reason: "checkpoint_restore_fallback", resumed: false });
-		return lease;
+		await cleanupOnFailure();
+		return createAfterRestoreFailure(acquireParams, scopeKey);
 	}
+}
+
+async function createAfterRestoreFailure(acquireParams: SessionCursorAgentAcquireParams, scopeKey: string): Promise<SessionCursorAgentLease> {
+	const lease = await acquireSessionCursorAgent({ ...acquireParams, forceCreate: true });
+	appendCursorAction({ action: "agent_resume_policy", phase: "error", scopeKey, reason: "checkpoint_restore_fallback", resumed: false });
+	return lease;
 }
 
 /**
@@ -72,8 +110,8 @@ export async function acquireCursorAgentFromCheckpoint(
  * For a persisted session, restore the matching checkpoint before any agent is created. This reuses
  * persisted agent state across an agent lifecycle boundary, so it requires local resume: a local
  * resume opt-out means a new agent bootstraps from the pi transcript. A matching local resume handle
- * wins: it resumes the same agent without a copy. Only the scope's own derived session store is
- * opened; ledger store identities are never trusted as paths.
+ * of a never-rewound agent wins: it resumes the same agent as recorded. Only the scope's own derived
+ * session store is opened; ledger store identities are never trusted as paths.
  */
 export async function acquireEmptyPoolCursorAgentFromCheckpoint(
 	acquireParams: SessionCursorAgentAcquireParams,

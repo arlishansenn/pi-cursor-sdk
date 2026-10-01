@@ -12,7 +12,7 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 - `src/cursor-provider.ts` is a thin `streamCursor()` wrapper that delegates turn execution to the turn runner.
 - `src/cursor-provider-turn-runner.ts` orchestrates provider turns (pre-send drain, prepare, send, finalize, emit, cleanup).
 - `src/cursor-provider-turn-prepare.ts` owns turn prepare (auth, MCP timeout install, effective local HTTP transport configuration, session agent, live-run setup, coordinator).
-- `src/cursor-checkpoint-restore.ts` owns the default-on checkpoint restore transaction (copy, resume, unavailable marking, copy-target cleanup, force-create fallback) and the empty-pool restore lookup for persisted sessions; `src/cursor-checkpoint-ledger.ts` owns ledger points, incremental-compatible point matching, and copy/delete primitives.
+- `src/cursor-checkpoint-restore.ts` owns the default-on checkpoint restore transaction (same-agent rewind preferred, copy fallback, resume, unavailable marking, copy-target cleanup, force-create fallback) and the empty-pool restore lookup for persisted sessions; `src/cursor-checkpoint-ledger.ts` owns ledger points, incremental-compatible point matching, rewind markers, and rewind/copy/delete primitives.
 - `src/cursor-provider-turn-send.ts` owns SDK `agent.send()` wiring and abort listener registration.
 - `src/cursor-provider-turn-finalize.ts` owns unified `awaitFinalizeCursorRunOutcome()` (wait, transcript replay, incomplete tools, artifacts, context cache).
 - `src/cursor-provider-turn-emit.ts` owns live vs direct emission from finalized outcomes.

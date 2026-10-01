@@ -6,7 +6,7 @@ Measurement for #8. Installed packages: `@cursor/sdk` 1.0.32, pi 0.87.1. Model `
 
 Backend cache reuse follows agentId continuity, not prompt content. With byte-identical checkpoint blobs and send text, resuming the **same** agentId after a rewind read about 99% of the prompt from cache in 4 of 5 samples. Resuming a **copy** under a new agentId read 2–18% in 5 of 5 samples. That is the same range as a newly created agent.
 
-So default-on checkpoint restore (copy to a new agentId) mostly does not reuse the backend cache in this measurement (1 of 5 B samples hit). Its post-restore turn has about the same uncached input as a create/bootstrap turn. Its measured benefit is lower latency than bootstrap. Same-agent rewind would reuse the cache, but it is still rejected for branch isolation (see `cursor-checkpoint-restore-feasibility-2026-09-30.md`).
+So default-on checkpoint restore (copy to a new agentId) mostly does not reuse the backend cache in this measurement (1 of 5 B samples hit). Its post-restore turn has about the same uncached input as a create/bootstrap turn. Its measured benefit is lower latency than bootstrap. Same-agent rewind reuses the cache. Its branch isolation was later shown in `cursor-rewind-isolation-2026-10-01.md`, and restore now prefers it (#18).
 
 ## Method
 

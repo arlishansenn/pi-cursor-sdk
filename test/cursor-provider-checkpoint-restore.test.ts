@@ -71,7 +71,7 @@ describe("streamCursor checkpoint restore on a real SQLite store", () => {
 	let stateRoot: string;
 	let actionDir: string;
 	let actionPath: string;
-	let knobs: { failOpenCall?: number; failAgentsDelete: boolean };
+	let knobs: { failOpenCall?: number; failAgentsDelete: boolean; hideSourceRow: boolean };
 	let sourceSends: string[];
 
 	beforeEach(async () => {
@@ -80,7 +80,7 @@ describe("streamCursor checkpoint restore on a real SQLite store", () => {
 		stateRoot = mkdtempSync(join(tmpdir(), "cursor-restore-state-"));
 		actionDir = mkdtempSync(join(tmpdir(), "cursor-checkpoint-restore-journal-"));
 		actionPath = join(actionDir, "actions.jsonl");
-		knobs = { failAgentsDelete: false };
+		knobs = { failAgentsDelete: false, hideSourceRow: false };
 		let openCalls = 0;
 		storeTestUtils.setSdkOperations({
 			getDefaultStateRoot: () => stateRoot,
@@ -89,6 +89,9 @@ describe("streamCursor checkpoint restore on a real SQLite store", () => {
 				if (knobs.failOpenCall === openCalls) throw new Error("simulated store open failure");
 				const store = await SqliteLocalAgentStore.open(options);
 				if (knobs.failAgentsDelete) store.agents.delete = async () => { throw new Error("simulated agents.delete failure"); };
+				// A missing source row makes rewind ineligible while its blobs still allow a copy.
+				const get = store.agents.get.bind(store.agents);
+				store.agents.get = async (input) => (knobs.hideSourceRow && input.agentId === "agent-source" ? null : get(input));
 				return store;
 			},
 		});
@@ -150,60 +153,119 @@ describe("streamCursor checkpoint restore on a real SQLite store", () => {
 		return ledgerTestUtils.points().find((point) => point.messageCount === ALPHA.messages.length);
 	}
 
-	it("restores the pre-divergence checkpoint into a new agent and continues incrementally after /tree", async () => {
+	/** Resume double that records the agent row's head at resume time, then writes like a real run. */
+	function resumeRecordingHead(sends: string[], result: string) {
+		const seen: { agentId?: string; head?: string } = {};
+		mockedResume.mockImplementationOnce(async (agentId, options) => {
+			seen.agentId = agentId;
+			seen.head = (await storeOf(options).agents.get({ agentId }))?.latestCheckpoint?.rootBlobId;
+			return storeWritingAgent(agentId, storeOf(options), sends, result);
+		});
+		return seen;
+	}
+
+	const sourceHead = (send: number) => blobIdFor(`agent-source:${sourceSends[send]}`);
+
+	it("rewinds the source agent to the pre-divergence checkpoint and continues incrementally after divergence", async () => {
 		await runAlphaThenBeta();
-		const targetSends: string[] = [];
-		mockedResume.mockImplementationOnce(async (agentId, options) => storeWritingAgent(agentId, storeOf(options), targetSends, "restored-done"));
+		const restoredSends: string[] = [];
+		const seen = resumeRecordingHead(restoredSends, "restored-done");
 
 		expect(await send(BACK_TO_ALPHA)).toContain("restored-done");
 
 		expect(mockedCreate).toHaveBeenCalledTimes(1);
-		const targetAgentId = mockedResume.mock.calls[0]?.[0] as string;
-		expect(targetAgentId).toMatch(/^agent-/);
-		expect(targetAgentId).not.toBe("agent-source");
-		expect(targetSends).toHaveLength(1);
-		expect(targetSends[0]).toContain("Which word?");
-		expect(targetSends[0]).not.toContain("Remember ALPHA");
-
-		const store = await openSessionStore();
-		try {
-			const alphaHead = blobIdFor(`agent-source:${sourceSends[0]}`);
-			const betaHead = blobIdFor(`agent-source:${sourceSends[1]}`);
-			const targetBlobs = (await store.checkpoints.list({ filter: { agentIds: [targetAgentId] } })).items;
-			expect(targetBlobs).toContain(alphaHead);
-			expect(targetBlobs).not.toContain(betaHead);
-			expect((await store.agents.get({ agentId: "agent-source" }))?.latestCheckpoint?.rootBlobId).toBe(betaHead);
-			expect((await store.checkpoints.list({ filter: { agentIds: ["agent-source"] } })).items).toEqual(expect.arrayContaining([alphaHead, betaHead]));
-		} finally {
-			await store.dispose();
-		}
+		expect(seen).toEqual({ agentId: "agent-source", head: sourceHead(0) });
+		expect(restoredSends).toHaveLength(1);
+		expect(restoredSends[0]).toContain("Which word?");
+		expect(restoredSends[0]).not.toContain("Remember ALPHA");
+		expect(await agentIdsInStore()).toEqual(["agent-source"]);
 		const rows = await journal();
+		expect(rows.find((row) => row.action === "checkpoint_restore")).toMatchObject({ reason: "rewind", agentId: "agent-source" });
 		expect(rows.find((row) => row.action === "prompt_build" && row.messageCount === BACK_TO_ALPHA.messages.length && row.reason !== "context_divergence")).toMatchObject({ mode: "incremental" });
 		expect(rows.some((row) => row.reason === "checkpoint_restore_fallback")).toBe(false);
 	});
 
-	it("restores into an empty pool after the /tree lifecycle reset instead of creating and bootstrapping", async () => {
+	it("rewinds into an empty pool after the /tree lifecycle reset instead of creating and bootstrapping", async () => {
 		await runAlphaThenBeta();
 		invalidateSessionAgent();
 		await resetSessionCursorAgent();
-		const targetSends: string[] = [];
-		mockedResume.mockImplementationOnce(async (agentId, options) => storeWritingAgent(agentId, storeOf(options), targetSends, "restored-done"));
+		const restoredSends: string[] = [];
+		const seen = resumeRecordingHead(restoredSends, "restored-done");
 
 		expect(await send(BACK_TO_ALPHA)).toContain("restored-done");
 
 		expect(mockedCreate).toHaveBeenCalledTimes(1);
-		expect(mockedResume.mock.calls[0]?.[0]).not.toBe("agent-source");
-		expect(targetSends).toHaveLength(1);
-		expect(targetSends[0]).toContain("Which word?");
-		expect(targetSends[0]).not.toContain("Remember ALPHA");
+		expect(seen).toEqual({ agentId: "agent-source", head: sourceHead(0) });
+		expect(restoredSends).toHaveLength(1);
+		expect(restoredSends[0]).not.toContain("Remember ALPHA");
 		const rows = await journal();
 		expect(rows.filter((row) => row.action === "send_plan").at(-1)).toMatchObject({ mode: "incremental" });
 	});
 
-	it("lets a matching local resume handle resume the same agent after a restart instead of copying a checkpoint", async () => {
+	it("never resumes a rewound agent from another branch's persisted handle; restores that branch's head instead", async () => {
+		await runAlphaThenBeta();
+		const betaHead = sourceHead(1);
+		resumeRecordingHead([], "restored-done");
+		await send(BACK_TO_ALPHA);
+		invalidateSessionAgent();
+		await resetSessionCursorAgent();
+		seedResumeHandle("agent-source", BETA);
+		const restoredSends: string[] = [];
+		const seen = resumeRecordingHead(restoredSends, "beta-done");
+		const afterBeta = makeContext([...BETA.messages, makeAssistantMessage("ok BETA", 4), { role: "user", content: "Which words?", timestamp: 5 }]);
+
+		expect(await send(afterBeta)).toContain("beta-done");
+
+		expect(seen).toEqual({ agentId: "agent-source", head: betaHead });
+		expect(restoredSends[0]).not.toContain("Remember ALPHA");
+		const rows = await journal();
+		expect(rows.filter((row) => row.action === "checkpoint_restore").map((row) => row.reason)).toEqual(["rewind", "rewind"]);
+	});
+
+	it("copies into a new agent when the source cannot be rewound", async () => {
+		await runAlphaThenBeta();
+		knobs.hideSourceRow = true;
+		const restoredSends: string[] = [];
+		const seen = resumeRecordingHead(restoredSends, "restored-done");
+
+		expect(await send(BACK_TO_ALPHA)).toContain("restored-done");
+
+		expect(seen.agentId).toMatch(/^agent-/);
+		expect(seen.agentId).not.toBe("agent-source");
+		expect(seen.head).toBe(sourceHead(0));
+		expect(restoredSends[0]).not.toContain("Remember ALPHA");
+		knobs.hideSourceRow = false;
+		const store = await openSessionStore();
+		try {
+			const targetBlobs = (await store.checkpoints.list({ filter: { agentIds: [seen.agentId!] } })).items;
+			expect(targetBlobs).toContain(sourceHead(0));
+			expect(targetBlobs).not.toContain(sourceHead(1));
+			expect((await store.agents.get({ agentId: "agent-source" }))?.latestCheckpoint?.rootBlobId).toBe(sourceHead(1));
+		} finally {
+			await store.dispose();
+		}
+		const rows = await journal();
+		expect(rows.find((row) => row.action === "checkpoint_restore")).toMatchObject({ reason: "copy" });
+	});
+
+	it("lets a matching local resume handle resume a never-rewound agent after a restart instead of restoring a checkpoint", async () => {
 		await runAlphaThenBeta();
 		invalidateSessionAgent();
 		await resetSessionCursorAgent();
+		seedResumeHandle("agent-source", BETA);
+		mockedResume.mockImplementationOnce(async (agentId, options) => storeWritingAgent(agentId, storeOf(options), [], "resumed-done"));
+		const afterBeta = makeContext([...BETA.messages, makeAssistantMessage("ok BETA", 4), { role: "user", content: "Which words?", timestamp: 5 }]);
+
+		expect(await send(afterBeta)).toContain("resumed-done");
+
+		expect(mockedResume).toHaveBeenCalledTimes(1);
+		expect(mockedResume.mock.calls[0]?.[0]).toBe("agent-source");
+		expect(await agentIdsInStore()).toEqual(["agent-source"]);
+		expect((await journal()).some((row) => row.action === "checkpoint_restore")).toBe(false);
+	});
+
+	/** Persisted local-resume handle for `agentId` as if `sentContext` was its last committed send. */
+	function seedResumeHandle(agentId: string, sentContext: Context): void {
 		vi.stubEnv("PI_CURSOR_LOCAL_RESUME", "1");
 		const poolKey = cursorSessionAgentTestUtils.buildSessionAgentPoolKey(SCOPE_KEY, {
 			apiKey: "test-key",
@@ -223,27 +285,19 @@ describe("streamCursor checkpoint restore on a real SQLite store", () => {
 			activeHandle: {
 				version: 2,
 				runtime: "local",
-				agentId: "agent-source",
+				agentId,
 				scopeKey: SCOPE_KEY,
 				sessionFile: SCOPE_KEY,
 				cwd: process.cwd(),
 				poolKey,
 				branchPathHash: resumeTestUtils.EMPTY_BRANCH_HASH,
 				compactionGeneration: 0,
-				sendState: { bootstrapped: true, contextFingerprint: computeCursorContextFingerprint(BETA), incrementalSendCount: 0 },
+				sendState: { bootstrapped: true, contextFingerprint: computeCursorContextFingerprint(sentContext), incrementalSendCount: 0 },
 				createdAt: "2026-10-01T00:00:00.000Z",
 				storeIdentity: { version: 1, stateRoot: join(stateRoot, "pi-sessions", hashCursorSessionStoreScope(SCOPE_KEY)) },
 			},
 		});
-		mockedResume.mockImplementationOnce(async (agentId, options) => storeWritingAgent(agentId, storeOf(options), [], "resumed-done"));
-		const afterBeta = makeContext([...BETA.messages, makeAssistantMessage("ok BETA", 4), { role: "user", content: "Which words?", timestamp: 5 }]);
-
-		expect(await send(afterBeta)).toContain("resumed-done");
-
-		expect(mockedResume).toHaveBeenCalledTimes(1);
-		expect(mockedResume.mock.calls[0]?.[0]).toBe("agent-source");
-		expect(await agentIdsInStore()).toEqual(["agent-source"]);
-	});
+	}
 
 	it("creates and bootstraps into an empty pool when local resume is off", async () => {
 		vi.stubEnv("PI_CURSOR_LOCAL_RESUME", "0");
@@ -270,11 +324,13 @@ describe("streamCursor checkpoint restore on a real SQLite store", () => {
 		expect(await agentIdsInStore()).toEqual(["agent-fallback", "agent-source"]);
 	});
 
-	it("keeps a restored target durable across store reopen with only the pre-divergence branch", async () => {
+	it("keeps a copied target durable across store reopen with only the pre-divergence branch", async () => {
 		await runAlphaThenBeta();
+		knobs.hideSourceRow = true;
 		mockedResume.mockImplementationOnce(async (agentId, options) => storeWritingAgent(agentId, storeOf(options), [], "restored-done"));
 		await send(BACK_TO_ALPHA);
 		const targetAgentId = mockedResume.mock.calls[0]?.[0] as string;
+		expect(targetAgentId).not.toBe("agent-source");
 		await resetCursorProviderTestState();
 
 		const reopened = await openSessionStore();
@@ -293,13 +349,29 @@ describe("streamCursor checkpoint restore on a real SQLite store", () => {
 		}
 	});
 
-	it("marks the point unavailable, deletes the copy target, and keeps the source when the target resume rejects", async () => {
+	it("marks the point unavailable and creates a new agent when the rewound source resume rejects", async () => {
 		await runAlphaThenBeta();
+		mockedResume.mockRejectedValueOnce(new Error("simulated checkpoint resume failure"));
+
+		expect(await send(BACK_TO_ALPHA)).toContain("fallback-done");
+
+		expect(mockedResume.mock.calls.map((call) => call[0])).toEqual(["agent-source"]);
+		expect(alphaPoint()?.unavailable).toBe(true);
+		expect(await agentIdsInStore()).toEqual(["agent-fallback", "agent-source"]);
+		const rows = await journal();
+		expect(rows.some((row) => row.action === "agent_resume" && row.phase === "error")).toBe(true);
+		expect(rows.some((row) => row.action === "agent_resume_policy" && row.reason === "checkpoint_restore_fallback")).toBe(true);
+	});
+
+	it("marks the point unavailable, deletes the copy target, and keeps the source when the copy target resume rejects", async () => {
+		await runAlphaThenBeta();
+		knobs.hideSourceRow = true;
 		mockedResume.mockRejectedValueOnce(new Error("simulated checkpoint target resume failure"));
 
 		expect(await send(BACK_TO_ALPHA)).toContain("fallback-done");
 
-		expect(mockedResume).toHaveBeenCalledTimes(1);
+		knobs.hideSourceRow = false;
+		expect(mockedResume.mock.calls[0]?.[0]).not.toBe("agent-source");
 		expect(alphaPoint()?.unavailable).toBe(true);
 		expect(await agentIdsInStore()).toEqual(["agent-fallback", "agent-source"]);
 		const rows = await journal();
@@ -323,6 +395,7 @@ describe("streamCursor checkpoint restore on a real SQLite store", () => {
 
 	it("keeps the force-create fallback when unused target cleanup rejects, logging a diagnosable error", async () => {
 		await runAlphaThenBeta();
+		knobs.hideSourceRow = true;
 		mockedResume.mockRejectedValueOnce(new Error("simulated checkpoint target resume failure"));
 		knobs.failAgentsDelete = true;
 

@@ -44,8 +44,8 @@ export const LOCAL_RESUME_SUITES = [
 		suite: "cursor-local-resume-tree",
 		script: "smoke:local-resume:tree",
 		marker: "local-resume-tree-smoke-ok",
-		stderrPattern: /tree assistant and resume-entry targets restored from checkpoint copies/i,
-		description: "Prove tree navigation never resumes the future-seeing SDK agent and restores separate checkpoint copies instead.",
+		stderrPattern: /rewound to pre-future checkpoints for tree assistant and resume-entry targets/i,
+		description: "Prove tree navigation rewinds the future-seeing SDK agent to pre-future checkpoints without leaking the future marker.",
 		cursorCalls: 4,
 	},
 	{
