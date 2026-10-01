@@ -47,6 +47,43 @@ import { join } from "node:path";
 describe("streamCursor native replay live run", () => {
 	beforeEach(resetCursorProviderTestState);
 
+	it("logs late raw callbacks after a real native split timeout while Pi remains estimated", async () => {
+		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
+		await registerNativeToolDisplayForTest([]);
+		const dir = mkdtempSync(join(tmpdir(), "cursor-late-raw-"));
+		const previous = process.env.CURSOR_SDK_USAGE_LOG;
+		process.env.CURSOR_SDK_USAGE_LOG = join(dir, "usage.jsonl");
+		try {
+			let onDelta: CursorDeltaHandler | undefined;
+			mockCreatedAgent({ agentId: "agent-raw-offline", send: vi.fn(async (_msg: unknown, opts: { onDelta: CursorDeltaHandler }) => {
+				onDelta = opts.onDelta;
+				// The first raw callback occurs before agent.send returns its run ID.
+				opts.onDelta({ update: { type: "turn-ended", usage: { inputTokens: 1000, outputTokens: 20, cacheReadTokens: 600, cacheWriteTokens: 100 } } });
+				opts.onDelta({ update: { type: "tool-call-completed", callId: "raw-call", toolCall: { name: "read", result: { status: "success", value: { content: "offline" } } } } });
+				return asMockCursorRun({ id: "raw-sdk-run", agentId: "agent-raw-offline", status: "running", wait: () => new Promise(() => {}), cancel: async () => {}, supports: () => true, unsupportedReason: () => undefined });
+			}), [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined) });
+			const first = getDoneEvent(await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" })));
+			expect(first.message.usage.totalTokens).toBe(1020);
+			// A second batch has no turn-ended boundary: drain really waits 75ms + 125ms.
+			onDelta!({ update: { type: "tool-call-completed", callId: "raw-call-2", toolCall: { name: "read", result: { status: "success", value: { content: "offline second" } } } } });
+			const second = getDoneEvent(await collectEvents(streamCursor(makeModel(), makeContext(), { apiKey: "test-key" })));
+			expect(second.reason).toBe("toolUse");
+			const usage = { inputTokens: 1400, outputTokens: 30, cacheReadTokens: 900, cacheWriteTokens: 100 };
+			onDelta!({ update: { type: "turn-ended", usage } });
+			onDelta!({ update: { type: "turn-ended", usage } });
+			const rows = readFileSync(process.env.CURSOR_SDK_USAGE_LOG!, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+			expect(rows.filter((row) => row.source === "raw").map((row) => [row.runId, row.usageEventIndex])).toEqual([["raw-sdk-run", 1], ["raw-sdk-run", 2], ["raw-sdk-run", 3]]);
+			expect(rows.filter((row) => row.source === "turn")).toHaveLength(1);
+			expect(rows.filter((row) => row.source === "estimate")).toHaveLength(1);
+			expect(rows.filter((row) => row.source === "turn")[0].semantics).toBe("pi_usage_mapping");
+		} finally {
+			await cursorProviderTestUtils.releaseAllPendingCursorLiveRunsForTests();
+			if (previous === undefined) delete process.env.CURSOR_SDK_USAGE_LOG;
+			else process.env.CURSOR_SDK_USAGE_LOG = previous;
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("uses bounded approximate usage on the final native replay stop turn when no turn-ended usage arrives", async () => {
 		process.env.PI_CURSOR_NATIVE_TOOL_DISPLAY = "1";
 		const registeredTools: RegisteredTool[] = [];

@@ -1,4 +1,4 @@
-import type { AssistantMessage, AssistantMessageEventStream } from "@earendil-works/pi-ai";
+import type { Api, Model, AssistantMessage, AssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { InteractionUpdate } from "@cursor/sdk";
 import { CURSOR_TEXT_MESSAGE_SEPARATOR } from "./cursor-partial-content-emitter.js";
 import type { CursorLiveRun } from "./cursor-live-run-coordinator.js";
@@ -33,6 +33,9 @@ import {
 	CursorToolCompletionLedger,
 	getToolFingerprint,
 } from "./cursor-provider-turn-tool-ledger.js";
+import { appendCursorUsageLog, type CursorUsageLogCorrelation, type CursorUsageLogRecord } from "./cursor-usage-log.js";
+import { getCursorSessionFile } from "./cursor-session-scope.js";
+import type { CursorRuntime } from "./cursor-config.js";
 import { readCursorSdkTurnUsageFromUpdate, type CursorSdkTurnUsage } from "./cursor-usage-accounting.js";
 
 export interface CursorSdkTurnCoordinatorOptions {
@@ -67,6 +70,44 @@ export class CursorSdkTurnCoordinator {
 	private readonly contentEmitter;
 	private sdkTurnUsage?: CursorSdkTurnUsage;
 	private hasPendingTextMessage = false;
+	private rawUsageLog?: { model: Model<Api>; runtime: CursorRuntime; correlation: CursorUsageLogCorrelation };
+	private rawRunId?: string;
+	private rawUsageFlushedWithoutRun = false;
+	private usageEventIndex = 0;
+	private pendingRawUsage: CursorUsageLogRecord[] = [];
+
+	configureRawUsageLog(model: Model<Api>, runtime: CursorRuntime, correlation: CursorUsageLogCorrelation): void {
+		this.rawUsageLog = { model, runtime, correlation: { ...correlation } };
+	}
+
+	attachRawUsageRun(runId: string): void {
+		this.rawRunId = runId;
+		this.flushRawUsageLog();
+	}
+
+	/** Also preserves pre-attach measurements when send rejects without returning a run ID. */
+	flushRawUsageLog(): void {
+		if (!this.rawRunId) this.rawUsageFlushedWithoutRun = true;
+		for (const record of this.pendingRawUsage.splice(0)) {
+			appendCursorUsageLog({ ...record, runId: this.rawRunId, runIdentity: this.rawRunId ? "sdk_run" : "unavailable" });
+		}
+	}
+
+	private recordRawUsage(usage: CursorSdkTurnUsage): void {
+		const metadata = this.rawUsageLog;
+		if (!metadata) return;
+		const { model, runtime, correlation } = metadata;
+		this.pendingRawUsage.push({
+			ts: new Date().toISOString(), session: getCursorSessionFile()?.split("/").pop(),
+			model: model.id, provider: model.provider, runtime, ...correlation,
+			source: "raw", schemaVersion: 2, semantics: "sdk_raw_turn",
+			inputSemantics: runtime === "local" ? "full_prompt" : "unknown",
+			stepIdentity: "unknown", usageEventIndex: ++this.usageEventIndex,
+			cachePartitionValid: usage.cacheReadTokens + usage.cacheWriteTokens <= usage.inputTokens,
+			...usage,
+		});
+		if (this.rawRunId || this.rawUsageFlushedWithoutRun) this.flushRawUsageLog();
+	}
 
 	constructor(options: CursorSdkTurnCoordinatorOptions) {
 		this.stream = options.stream;
@@ -150,7 +191,11 @@ export class CursorSdkTurnCoordinator {
 
 	handleDelta(update: InteractionUpdate): void {
 		const sdkTurnUsage = readCursorSdkTurnUsageFromUpdate(update);
-		if (sdkTurnUsage) this.sdkTurnUsage = sdkTurnUsage;
+		if (sdkTurnUsage) {
+			const rawUsage = readCursorSdkTurnUsageFromUpdate(update, true);
+			if (rawUsage) this.recordRawUsage(rawUsage);
+			this.sdkTurnUsage = sdkTurnUsage;
+		}
 		if (this.liveRun && (update.type === "turn-ended" || sdkTurnUsage)) {
 			cursorLiveRuns.recordSdkTurnEnded(this.liveRun, sdkTurnUsage);
 		}

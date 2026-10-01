@@ -1,4 +1,4 @@
-import { traceCursorAction } from "./cursor-actions-log.js";
+import { getCursorActionTurnId, traceCursorAction } from "./cursor-actions-log.js";
 import type { SendOptions } from "@cursor/sdk";
 import { countCursorAgentMessages } from "./cursor-agent-message-web-tools.js";
 import {
@@ -57,6 +57,9 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 	const { options } = params;
 	const { agent, cwd, payload, meta, runtime } = prepared;
 	const { turnCoordinator, liveRun } = runtime;
+	turnCoordinator.configureRawUsageLog(params.model, prepared.runtimeTarget, {
+		turnId: liveRun?.turnId ?? getCursorActionTurnId(), mode: meta.sendPlan.mode,
+	});
 
 	let completed = false;
 	let sdkRun: Awaited<ReturnType<typeof agent.send>> | null = null;
@@ -126,6 +129,7 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 		}
 		const run = await runPromise;
 		sdkRun = run;
+		turnCoordinator.attachRawUsageRun(run.id);
 		if (prepared.runtimeTarget === "cloud" && !recordCursorCloudLifecycleSafely({ agentId: run.agentId, runId: run.id }, resolvedApiKey)) {
 			const cancellationConfirmed = await requestBoundedCloudRunCancellation(run);
 			throw createCursorCloudLifecyclePersistenceError(run.agentId, "run", cancellationConfirmed, resolvedApiKey);
@@ -157,6 +161,7 @@ export async function sendCursorProviderTurn(sendParams: SendCursorProviderTurnP
 			abortRegistration,
 		};
 	} finally {
+		if (!completed) turnCoordinator.flushRawUsageLog();
 		if (!completed && abortRegistration) {
 			abortRegistration.signal.removeEventListener("abort", abortRegistration.listener);
 		}
