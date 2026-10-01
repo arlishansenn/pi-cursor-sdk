@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted 2026-09-30. Stage 1 implemented. Stage 2 is implemented behind `PI_CURSOR_CHECKPOINT_RESTORE=1` and remains disabled by default.
+Accepted 2026-09-30. Stage 1 implemented. Stage 2 is implemented and enabled by default since 2026-10-01; `PI_CURSOR_CHECKPOINT_RESTORE=0` disables it.
 
 ## Context
 
@@ -21,7 +21,7 @@ Installed `@cursor/sdk` 1.0.32 `Agent.resume(agentId, options?)` takes an agent 
   - a request id with no lifecycle scope is async-context-local and selects a `__request__:` pool key only inside that call. It does not mutate a process-global binding.
 - One action-turn context covers the identity decision and later create/resume/send records. A nested runner reuses that turn id.
 - Do not send `x-session-affinity`, and do not use the pi session id as a Cursor agent id or send idempotency key.
-- Do not enable historical restore until a copied agent can be resumed from the same owned store, continue from the committed pi boundary, survive concurrent writes, interruption, rollback, and reopen-send, and persist unavailable points. The current provider uses create/bootstrap.
+- Enable historical restore by default only after a copied agent can be resumed from the same owned store, continue from the committed pi boundary, survive concurrent writes, interruption, rollback, and reopen-send, and persist unavailable points. These gates passed on 2026-10-01 (see Consequences).
 
 ## Checkpoint feasibility (SDK 1.0.32)
 
@@ -39,4 +39,4 @@ The authenticated experiment used `grok-4.6` with `fast=false`, `settingSources:
 
 ## Consequences
 
-Compatible in-process turns keep one Cursor agent past 20 incremental sends. Experimental checkpoint copy is implemented behind `PI_CURSOR_CHECKPOINT_RESTORE=1` and is off by default. Enablement acceptance is not complete: real SDK conversation isolation, competing writers, and interruption cleanup remain unproven. History navigation uses create/bootstrap unless that opt-in is set.
+Compatible in-process turns keep one Cursor agent past 20 incremental sends. Checkpoint copy restore is on by default; `PI_CURSOR_CHECKPOINT_RESTORE=0` disables it. A restore point matches when the current context extends the point's sent context the way an incremental send would. The lookup runs on context divergence with a live pooled agent and before creating into an empty pool of a persisted session, because pi `/tree` resets the pool and a restarted process starts empty. The empty-pool lookup opens only the scope's own derived session store. It reuses persisted agent state across an agent lifecycle boundary, so it runs only when local resume is on, and it is skipped when local resume has a matching persisted handle, because that resumes the same agent without a copy. With local resume off, `/tree` and restart create/bootstrap; the live-pool divergence lookup still runs. Real-SQLite tests cover copy under a competing writer, in-process copy interruption cleanup, resume failure rollback, and reopen durability; `npm run smoke:checkpoint-restore` covers branch isolation through the live provider path. A process killed mid-copy leaves the copy target in the session store; nothing reclaims it. A resume that succeeds but whose next send fails is a turn error, not a fallback. Restore does not promise a cache-hit change; #8 measures it. History navigation uses create/bootstrap when restore is disabled or no point matches.

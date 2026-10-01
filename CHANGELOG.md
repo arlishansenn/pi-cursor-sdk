@@ -5,13 +5,14 @@
 ### Changed
 
 - The platform smoke gate verifies macOS and Ubuntu only. Windows runtime code remains, but Windows is no longer a verified platform lane and the gate does not require Parallels.
+- Restore historical local Cursor checkpoints by default (#6). When pi context diverges, or a persisted session with local resume on starts a new agent after `/tree` or a process restart, and a recorded checkpoint matches, the extension copies it into a new local agent and continues incrementally instead of replaying the transcript. Copy, resume, or store failure falls back to create/bootstrap. Set `PI_CURSOR_CHECKPOINT_RESTORE=0` to always create/bootstrap.
 
 ### Fixed
 
+- Match checkpoint restore points by incremental compatibility instead of exact context equality (#6). A point records the context it sent, so a `/tree` branch that adds a new user message never matched before and restore always fell back to create/bootstrap. `npm run smoke:checkpoint-restore` now drives the production provider path instead of copying checkpoint blobs itself.
 - Surface checkpoint-restore resume rejections to the restore transaction instead of silently falling back inside agent creation (#7). A rejected copy-target resume now marks the ledger point unavailable, releases the retained store, deletes the unused copy target (agent row and checkpoint blobs, with a diagnosable `checkpoint_restore_cleanup` error row if that delete fails), and retries with an explicit force-create.
 - Stop recreating the local Cursor agent after 20 successful incremental sends. The count remains diagnostic. Provider requests now bind `options.sessionId` to the existing session scope: a conflict with the pi session id fails before send, a missing id keeps the current scope, and direct calls isolate by request id.
 - Route pi compaction summarization requests (which carry a fresh random session id by design) through an isolated request scope during the compaction window opened by `session_before_compact` and closed by `session_compact` / `session_compact_failed`, instead of failing identity validation or entering the session agent pool.
-- Add an opt-in historical local Cursor checkpoint copy path, disabled by default behind `PI_CURSOR_CHECKPOINT_RESTORE=1`, with create/bootstrap fallback. The real SDK conversation acceptance gates are not complete, so it is implemented pending acceptance rather than enabled by default.
 
 ## 0.4.0 - 2026-09-26
 

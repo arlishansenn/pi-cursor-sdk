@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
 	assertNotResumedFrom,
+	assertRestoredCopyOf,
 	assertTurnMetadata,
 	assistantEntryContaining,
 	buildLocalResumeSmokeEnv,
@@ -377,7 +378,7 @@ async function runTreeSmoke() {
 				timeoutMs,
 				seenMetadata,
 			});
-			assertNotResumedFrom("tree assistant target", assistantTarget, originalAgentId);
+			assertRestoredCopyOf("tree assistant target", assistantTarget, originalAgentId);
 			if (assistantTarget.text.includes(futureMarker)) fail("tree assistant target leaked future marker", assistantTarget.text);
 
 			const resumeEntryTarget = await promptAndRead({
@@ -387,11 +388,12 @@ async function runTreeSmoke() {
 				timeoutMs,
 				seenMetadata,
 			});
-			assertNotResumedFrom("tree resume-entry target", resumeEntryTarget, originalAgentId);
+			assertRestoredCopyOf("tree resume-entry target", resumeEntryTarget, originalAgentId);
+			if (resumeEntryTarget.metadata.run.agentId === assistantTarget.metadata.run.agentId) fail("tree resume-entry target reused the assistant-target copy");
 			if (resumeEntryTarget.text.includes(futureMarker)) fail("tree resume-entry target leaked future marker", resumeEntryTarget.text);
 		});
 		console.log("local-resume-tree-smoke-ok");
-		console.error(scrubSmokeText(`[local-resume-smoke] original ${originalAgentId} rejected for tree assistant and resume-entry targets`));
+		console.error(scrubSmokeText(`[local-resume-smoke] original ${originalAgentId} not resumed; tree assistant and resume-entry targets restored from checkpoint copies`));
 	} finally {
 		cleanupArtifactRoot(artifactRoot);
 	}

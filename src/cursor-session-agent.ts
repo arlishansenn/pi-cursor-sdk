@@ -482,6 +482,12 @@ async function tryLeaseReadyEntry(
 	return leaseFromEntry(readyEntry, scopeKey, params, created);
 }
 
+/** Persisted local-resume handle the next create would resume; explicit resume targets bypass it. */
+function getPersistedResumeHandle(poolKey: string, params: SessionCursorAgentCreateParams) {
+	if (params.resumeAgentId !== undefined || params.localResume !== true || params.forceCreate) return undefined;
+	return getMatchingCursorSessionAgentResumeHandle(poolKey);
+}
+
 async function createSessionAgentEntry(
 	scopeKey: string,
 	persistentStore: boolean,
@@ -513,7 +519,7 @@ async function createSessionAgentEntry(
 			createAgent ??= sdk.Agent.create;
 			resumeAgent ??= sdk.Agent.resume;
 		}
-		const persistedResumeHandle = params.resumeAgentId ? undefined : resumeEligible ? getMatchingCursorSessionAgentResumeHandle(resolvedPoolKey) : undefined;
+		const persistedResumeHandle = getPersistedResumeHandle(resolvedPoolKey, params);
 		const resumeAgentId = params.resumeAgentId ?? persistedResumeHandle?.agentId;
 		const storeSelection = await openCursorSessionStoreForScope({
 			cwd: params.cwd,
@@ -715,6 +721,15 @@ export async function resetSessionCursorAgent(
 	options?: { retainStore?: boolean },
 ): Promise<void> {
 	await traceCursorAction({ action: "agent_reset", scopeKey, reason }, () => disposePoolEntryForScope(scopeKey, options));
+}
+
+/**
+ * True when the next acquire for `scopeKey` would call `Agent.create`: the pool is empty and
+ * local resume has no matching persisted handle to resume the same agent from.
+ */
+export function willSessionCursorAgentAcquireCreate(scopeKey: string, params: SessionCursorAgentCreateParams): boolean {
+	if (getSessionCursorAgentPoolState(scopeKey).status !== "empty") return false;
+	return getPersistedResumeHandle(buildSessionAgentPoolKey(scopeKey, params), params) === undefined;
 }
 
 export async function disposeSessionCursorAgent(scopeKey: string = getCursorSessionScopeKey()): Promise<void> {

@@ -1,7 +1,10 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { LocalAgentStore } from "@cursor/sdk";
+import { SqliteLocalAgentStore } from "@cursor/sdk/sqlite";
+import type { Context } from "@earendil-works/pi-ai";
 import { __testUtils as actionLog } from "../src/cursor-actions-log.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -12,320 +15,325 @@ import {
 	makeAssistantMessage,
 	makeContext,
 	makeModel,
-	mockCreatedAgent,
 	mockedCreate,
 	mockedResume,
 	resetCursorProviderTestState,
 } from "./helpers/cursor-provider-harness.js";
 import { streamCursor } from "../src/cursor-provider.js";
-import { __testUtils as ledgerTestUtils, recordCursorCheckpointPoint } from "../src/cursor-checkpoint-ledger.js";
-import { __testUtils as cursorSessionScopeTestUtils } from "../src/cursor-session-scope.js";
-import { __testUtils as cursorSessionAgentTestUtils } from "../src/cursor-session-agent.js";
+import { __testUtils as cursorSessionAgentTestUtils, invalidateSessionAgent, resetSessionCursorAgent } from "../src/cursor-session-agent.js";
 import { __testUtils as resumeTestUtils } from "../src/cursor-session-agent-resume.js";
-import { __testUtils as storeTestUtils, hashCursorSessionStoreScope } from "../src/cursor-session-store.js";
 import { computeCursorContextFingerprint } from "../src/context.js";
 import { buildCursorModelSelection } from "../src/model-discovery.js";
+import { __testUtils as ledgerTestUtils } from "../src/cursor-checkpoint-ledger.js";
+import { __testUtils as cursorSessionScopeTestUtils } from "../src/cursor-session-scope.js";
+import { __testUtils as storeTestUtils, hashCursorSessionStoreScope } from "../src/cursor-session-store.js";
 
-type FakeAgentDoc = {
-	agentId: string;
-	cwd: string;
-	status: string;
-	createdAt: number;
-	updatedAt: number;
-	latestCheckpoint: { schemaVersion: number; rootBlobId: string } | null;
-};
+type SqliteStore = LocalAgentStore & { dispose(): Promise<void> };
 
-/**
- * In-memory LocalAgentStore backend keyed by stateRoot, so multiple open handles
- * (retained store, transferred ownership, cleanup re-open) observe one data set
- * like sqlite handles on one directory would. `knobs` injects failures.
- */
-function installCheckpointRestoreStoreBackend() {
-	const defaultStateRoot = "/tmp/cursor-restore-test-state";
-	const roots = new Map<string, { agents: Map<string, FakeAgentDoc>; checkpoints: Map<string, Buffer> }>();
-	const knobs = { failOpenCall: undefined as number | undefined, failAgentsDelete: false };
-	let openCalls = 0;
-	const rootOf = (stateRoot: string) => {
-		let root = roots.get(stateRoot);
-		if (!root) {
-			root = { agents: new Map(), checkpoints: new Map() };
-			roots.set(stateRoot, root);
-		}
-		return root;
-	};
-	const openSqliteStore = vi.fn(async (options: { workspaceRef: string; stateRoot: string }) => {
-		openCalls += 1;
-		if (knobs.failOpenCall === openCalls) throw new Error("simulated store open failure");
-		const root = rootOf(options.stateRoot);
-		const store = {
-			agents: {
-				get: async ({ agentId }: { agentId: string }) => root.agents.get(agentId) ?? null,
-				create: async ({ agent }: { agent: FakeAgentDoc }) => {
-					root.agents.set(agent.agentId, { ...agent });
-				},
-				update: async ({ agent }: { agent: FakeAgentDoc }) => {
-					root.agents.set(agent.agentId, { ...agent });
-				},
-				delete: async ({ filter }: { filter: { agentIds?: string[] } }) => {
-					if (knobs.failAgentsDelete) throw new Error("simulated agents.delete failure");
-					for (const agentId of filter.agentIds ?? []) root.agents.delete(agentId);
-				},
-			},
-			checkpoints: {
-				get: async ({ agentId, blobId }: { agentId: string; blobId: string }) =>
-					root.checkpoints.get(`${agentId}\0${blobId}`) ?? null,
-				create: async ({ agentId, blobId, data }: { agentId: string; blobId: string; data: Buffer }) => {
-					root.checkpoints.set(`${agentId}\0${blobId}`, data);
-				},
-				delete: async ({ filter }: { filter: { agentIds?: string[]; blobIds?: string[] } }) => {
-					for (const key of [...root.checkpoints.keys()]) {
-						const [agentId, blobId] = key.split("\0") as [string, string];
-						if (filter.agentIds && !filter.agentIds.includes(agentId)) continue;
-						if (filter.blobIds && !filter.blobIds.includes(blobId)) continue;
-						root.checkpoints.delete(key);
-					}
-				},
-				list: async ({ filter }: { filter?: { agentIds?: string[] } }) => ({
-					items: [...root.checkpoints.keys()]
-						.filter((key) => !filter?.agentIds || filter.agentIds.includes(key.split("\0")[0] as string))
-						.map((key) => key.split("\0")[1]),
-				}),
-			},
-			runs: {},
-			runEvents: {},
-			dispose: vi.fn(async () => {}),
-		};
-		return store as unknown as LocalAgentStore & { dispose(): Promise<void> };
-	});
-	storeTestUtils.setSdkOperations({ getDefaultStateRoot: () => defaultStateRoot, openSqliteStore });
-	return {
-		knobs,
-		sessionIdentityFor: (scopeKey: string) => ({
-			version: 1 as const,
-			stateRoot: join(defaultStateRoot, "pi-sessions", hashCursorSessionStoreScope(scopeKey)),
-		}),
-		seedSourceAgent: (stateRoot: string) => {
-			const root = rootOf(stateRoot);
-			const head = "aa".repeat(32);
-			const child = "bb".repeat(32);
-			root.agents.set("agent-source", {
-				agentId: "agent-source",
-				cwd: process.cwd(),
-				status: "idle",
-				createdAt: 0,
-				updatedAt: 0,
-				latestCheckpoint: { schemaVersion: 1, rootBlobId: head },
-			});
-			root.checkpoints.set(`agent-source\0${head}`, Buffer.from("ALPHA"));
-			root.checkpoints.set(`agent-source\0${child}`, Buffer.from("child"));
-		},
-		getAgent: (stateRoot: string, agentId: string) => rootOf(stateRoot).agents.get(agentId) ?? null,
-		blobIdsFor: (stateRoot: string, agentId: string) =>
-			[...rootOf(stateRoot).checkpoints.keys()]
-				.filter((key) => key.startsWith(`${agentId}\0`))
-				.map((key) => key.split("\0")[1]),
-		copyTargetIds: (stateRoot: string) =>
-			[...rootOf(stateRoot).agents.keys()].filter((agentId) => agentId.startsWith("agent-") && agentId !== "agent-source"),
-	};
+const SCOPE_KEY = "/tmp/checkpoint-restore-session.jsonl";
+const ALPHA = makeContext([{ role: "user", content: "Remember ALPHA", timestamp: 1 }]);
+const BETA = makeContext([...ALPHA.messages, makeAssistantMessage("ok ALPHA", 2), { role: "user", content: "Remember BETA", timestamp: 3 }]);
+const BACK_TO_ALPHA = makeContext([...ALPHA.messages, makeAssistantMessage("ok ALPHA", 2), { role: "user", content: "Which word?", timestamp: 4 }]);
+
+function blobIdFor(text: string): string {
+	return createHash("sha256").update(text).digest("hex");
 }
 
-describe("streamCursor checkpoint restore", () => {
+/**
+ * SDK agent double that persists each send as one checkpoint blob plus a head
+ * advance in the real store passed through `local.store`, like a finished local run.
+ */
+function storeWritingAgent(agentId: string, store: SqliteStore, sends: string[], result: string) {
+	return asMockSdkAgent({
+		agentId,
+		send: vi.fn().mockImplementation(async (message: { text?: string }) => {
+			const text = message.text ?? "";
+			sends.push(text);
+			const blobId = blobIdFor(`${agentId}:${text}`);
+			await store.checkpoints.create({ agentId, blobId, data: Buffer.from(text) });
+			const current = await store.agents.get({ agentId });
+			await store.agents.update({ agent: { ...current!, latestCheckpoint: { schemaVersion: 1, rootBlobId: blobId }, updatedAt: Date.now() } });
+			return asMockCursorRun({
+				id: `run-${sends.length}`,
+				agentId,
+				status: "finished",
+				wait: vi.fn().mockResolvedValue({ id: `run-${sends.length}`, status: "finished", result }),
+			});
+		}),
+	});
+}
+
+function storeOf(options: unknown): SqliteStore {
+	return (options as { local: { store: SqliteStore } }).local.store;
+}
+
+describe("streamCursor checkpoint restore on a real SQLite store", () => {
+	let stateRoot: string;
 	let actionDir: string;
 	let actionPath: string;
-	let backend: ReturnType<typeof installCheckpointRestoreStoreBackend>;
-	let scopeKey: string;
-	let identity: { version: 1; stateRoot: string };
-	let fingerprint: string;
+	let knobs: { failOpenCall?: number; failAgentsDelete: boolean };
+	let sourceSends: string[];
 
 	beforeEach(async () => {
 		await resetCursorProviderTestState();
 		ledgerTestUtils.reset();
-		backend = installCheckpointRestoreStoreBackend();
+		stateRoot = mkdtempSync(join(tmpdir(), "cursor-restore-state-"));
 		actionDir = mkdtempSync(join(tmpdir(), "cursor-checkpoint-restore-journal-"));
 		actionPath = join(actionDir, "actions.jsonl");
+		knobs = { failAgentsDelete: false };
+		let openCalls = 0;
+		storeTestUtils.setSdkOperations({
+			getDefaultStateRoot: () => stateRoot,
+			openSqliteStore: async (options) => {
+				openCalls += 1;
+				if (knobs.failOpenCall === openCalls) throw new Error("simulated store open failure");
+				const store = await SqliteLocalAgentStore.open(options);
+				if (knobs.failAgentsDelete) store.agents.delete = async () => { throw new Error("simulated agents.delete failure"); };
+				return store;
+			},
+		});
 		vi.stubEnv("CURSOR_SDK_ACTIONS_LOG", actionPath);
-		vi.stubEnv("PI_CURSOR_LOCAL_RESUME", "1");
-		vi.stubEnv("PI_CURSOR_CHECKPOINT_RESTORE", "1");
+		delete process.env.PI_CURSOR_CHECKPOINT_RESTORE;
+		cursorSessionScopeTestUtils.set(process.cwd(), SCOPE_KEY);
+		sourceSends = [];
+		let created = 0;
+		mockedCreate.mockImplementation(async (options) => {
+			const store = storeOf(options);
+			created += 1;
+			const agentId = created === 1 ? "agent-source" : "agent-fallback";
+			const now = Date.now();
+			await store.agents.create({ agent: { agentId, cwd: process.cwd(), status: "idle", createdAt: now, updatedAt: now, latestCheckpoint: null } });
+			return storeWritingAgent(agentId, store, created === 1 ? sourceSends : [], created === 1 ? "source-done" : "fallback-done");
+		});
 	});
 	afterEach(async () => {
 		await actionLog.flush();
+		await resetCursorProviderTestState();
 		storeTestUtils.setSdkOperations(undefined);
 		vi.unstubAllEnvs();
 		rmSync(actionDir, { recursive: true, force: true });
+		rmSync(stateRoot, { recursive: true, force: true });
 	});
+
 	async function journal() {
 		await actionLog.flush();
 		return readFileSync(actionPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
 	}
 
-	/**
-	 * Seeds a persistent scope whose first acquire resumes `agent-old` with a stale
-	 * context fingerprint, so the send plan diverges and the checkpoint restore
-	 * transaction runs against a recorded source point.
-	 */
-	function seedRestoreScope() {
-		scopeKey = "/tmp/checkpoint-restore-session.jsonl";
-		cursorSessionScopeTestUtils.set(process.cwd(), scopeKey);
-		identity = backend.sessionIdentityFor(scopeKey);
-		const modelSelection = buildCursorModelSelection("gpt-5.5@1m", "off", false);
-		const poolKey = cursorSessionAgentTestUtils.buildSessionAgentPoolKey(scopeKey, {
+	async function send(context: Context) {
+		const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), context, { apiKey: "test-key" }));
+		return JSON.stringify(getDoneEvent(events).message.content);
+	}
+
+	/** Two committed turns on one source agent: ALPHA, then BETA. Ledger points come from production capture. */
+	async function runAlphaThenBeta() {
+		expect(await send(ALPHA)).toContain("source-done");
+		expect(await send(BETA)).toContain("source-done");
+		expect(sourceSends).toHaveLength(2);
+	}
+
+	async function openSessionStore(): Promise<SqliteStore> {
+		const sessionRoot = join(stateRoot, "pi-sessions", hashCursorSessionStoreScope(SCOPE_KEY));
+		return SqliteLocalAgentStore.open({ workspaceRef: process.cwd(), stateRoot: sessionRoot });
+	}
+
+	async function agentIdsInStore(): Promise<string[]> {
+		const store = await openSessionStore();
+		try {
+			return (await store.agents.list()).items.map((agent) => agent.agentId).sort();
+		} finally {
+			await store.dispose();
+		}
+	}
+
+	function alphaPoint() {
+		return ledgerTestUtils.points().find((point) => point.messageCount === ALPHA.messages.length);
+	}
+
+	it("restores the pre-divergence checkpoint into a new agent and continues incrementally after /tree", async () => {
+		await runAlphaThenBeta();
+		const targetSends: string[] = [];
+		mockedResume.mockImplementationOnce(async (agentId, options) => storeWritingAgent(agentId, storeOf(options), targetSends, "restored-done"));
+
+		expect(await send(BACK_TO_ALPHA)).toContain("restored-done");
+
+		expect(mockedCreate).toHaveBeenCalledTimes(1);
+		const targetAgentId = mockedResume.mock.calls[0]?.[0] as string;
+		expect(targetAgentId).toMatch(/^agent-/);
+		expect(targetAgentId).not.toBe("agent-source");
+		expect(targetSends).toHaveLength(1);
+		expect(targetSends[0]).toContain("Which word?");
+		expect(targetSends[0]).not.toContain("Remember ALPHA");
+
+		const store = await openSessionStore();
+		try {
+			const alphaHead = blobIdFor(`agent-source:${sourceSends[0]}`);
+			const betaHead = blobIdFor(`agent-source:${sourceSends[1]}`);
+			const targetBlobs = (await store.checkpoints.list({ filter: { agentIds: [targetAgentId] } })).items;
+			expect(targetBlobs).toContain(alphaHead);
+			expect(targetBlobs).not.toContain(betaHead);
+			expect((await store.agents.get({ agentId: "agent-source" }))?.latestCheckpoint?.rootBlobId).toBe(betaHead);
+			expect((await store.checkpoints.list({ filter: { agentIds: ["agent-source"] } })).items).toEqual(expect.arrayContaining([alphaHead, betaHead]));
+		} finally {
+			await store.dispose();
+		}
+		const rows = await journal();
+		expect(rows.find((row) => row.action === "prompt_build" && row.messageCount === BACK_TO_ALPHA.messages.length && row.reason !== "context_divergence")).toMatchObject({ mode: "incremental" });
+		expect(rows.some((row) => row.reason === "checkpoint_restore_fallback")).toBe(false);
+	});
+
+	it("restores into an empty pool after the /tree lifecycle reset instead of creating and bootstrapping", async () => {
+		await runAlphaThenBeta();
+		invalidateSessionAgent();
+		await resetSessionCursorAgent();
+		const targetSends: string[] = [];
+		mockedResume.mockImplementationOnce(async (agentId, options) => storeWritingAgent(agentId, storeOf(options), targetSends, "restored-done"));
+
+		expect(await send(BACK_TO_ALPHA)).toContain("restored-done");
+
+		expect(mockedCreate).toHaveBeenCalledTimes(1);
+		expect(mockedResume.mock.calls[0]?.[0]).not.toBe("agent-source");
+		expect(targetSends).toHaveLength(1);
+		expect(targetSends[0]).toContain("Which word?");
+		expect(targetSends[0]).not.toContain("Remember ALPHA");
+		const rows = await journal();
+		expect(rows.filter((row) => row.action === "send_plan").at(-1)).toMatchObject({ mode: "incremental" });
+	});
+
+	it("lets a matching local resume handle resume the same agent after a restart instead of copying a checkpoint", async () => {
+		await runAlphaThenBeta();
+		invalidateSessionAgent();
+		await resetSessionCursorAgent();
+		vi.stubEnv("PI_CURSOR_LOCAL_RESUME", "1");
+		const poolKey = cursorSessionAgentTestUtils.buildSessionAgentPoolKey(SCOPE_KEY, {
 			apiKey: "test-key",
 			agentMode: "agent",
 			cwd: process.cwd(),
-			modelSelection,
+			modelSelection: buildCursorModelSelection("gpt-5.5@1m", "off", false),
 			settingSources: ["all"],
 			localSafety: { autoReview: false, sandboxEnabled: false },
 			localResume: true,
 		});
 		resumeTestUtils.set({
-			scopeKey,
-			sessionFile: scopeKey,
+			scopeKey: SCOPE_KEY,
+			sessionFile: SCOPE_KEY,
 			cwd: process.cwd(),
 			branchPathHash: resumeTestUtils.EMPTY_BRANCH_HASH,
 			compactionGeneration: 0,
 			activeHandle: {
-				version: 1,
+				version: 2,
 				runtime: "local",
-				agentId: "agent-old",
-				scopeKey,
-				sessionFile: scopeKey,
+				agentId: "agent-source",
+				scopeKey: SCOPE_KEY,
+				sessionFile: SCOPE_KEY,
 				cwd: process.cwd(),
 				poolKey,
 				branchPathHash: resumeTestUtils.EMPTY_BRANCH_HASH,
 				compactionGeneration: 0,
-				sendState: { bootstrapped: true, contextFingerprint: "stale-context", incrementalSendCount: 0 },
-				createdAt: "2026-07-07T00:00:00.000Z",
-				storeIdentity: identity,
+				sendState: { bootstrapped: true, contextFingerprint: computeCursorContextFingerprint(BETA), incrementalSendCount: 0 },
+				createdAt: "2026-10-01T00:00:00.000Z",
+				storeIdentity: { version: 1, stateRoot: join(stateRoot, "pi-sessions", hashCursorSessionStoreScope(SCOPE_KEY)) },
 			},
 		});
-		const priorContext = makeContext();
-		const restoreContext = makeContext([
-			...priorContext.messages,
-			makeAssistantMessage("Prior answer"),
-			{ role: "user", content: "Follow up", timestamp: 3 },
-		]);
-		fingerprint = computeCursorContextFingerprint(restoreContext);
-		backend.seedSourceAgent(identity.stateRoot);
-		recordCursorCheckpointPoint({
-			scopeKey,
-			contextFingerprint: fingerprint,
-			messageCount: 3,
-			sourceAgentId: "agent-source",
-			blobIds: ["aa".repeat(32), "bb".repeat(32)],
-			headBlobId: "aa".repeat(32),
-			storeIdentity: identity,
-		});
-		return restoreContext;
-	}
+		mockedResume.mockImplementationOnce(async (agentId, options) => storeWritingAgent(agentId, storeOf(options), [], "resumed-done"));
+		const afterBeta = makeContext([...BETA.messages, makeAssistantMessage("ok BETA", 4), { role: "user", content: "Which words?", timestamp: 5 }]);
 
-	function pointForFingerprint() {
-		return ledgerTestUtils.points().find((point) => point.contextFingerprint === fingerprint);
-	}
+		expect(await send(afterBeta)).toContain("resumed-done");
 
-	it("marks the checkpoint unavailable, cleans the copy target, and falls back to create when the target resume rejects", async () => {
-		const context = seedRestoreScope();
-		mockedResume.mockResolvedValueOnce(asMockSdkAgent({ agentId: "agent-old", send: vi.fn() }));
+		expect(mockedResume).toHaveBeenCalledTimes(1);
+		expect(mockedResume.mock.calls[0]?.[0]).toBe("agent-source");
+		expect(await agentIdsInStore()).toEqual(["agent-source"]);
+	});
+
+	it("creates and bootstraps into an empty pool when local resume is off", async () => {
+		vi.stubEnv("PI_CURSOR_LOCAL_RESUME", "0");
+		await runAlphaThenBeta();
+		invalidateSessionAgent();
+		await resetSessionCursorAgent();
+
+		expect(await send(BACK_TO_ALPHA)).toContain("fallback-done");
+
+		expect(mockedResume).not.toHaveBeenCalled();
+		expect(mockedCreate).toHaveBeenCalledTimes(2);
+		expect(await agentIdsInStore()).toEqual(["agent-fallback", "agent-source"]);
+	});
+
+	it("creates and bootstraps after /tree when PI_CURSOR_CHECKPOINT_RESTORE=0", async () => {
+		vi.stubEnv("PI_CURSOR_CHECKPOINT_RESTORE", "0");
+		await runAlphaThenBeta();
+
+		expect(await send(BACK_TO_ALPHA)).toContain("fallback-done");
+
+		expect(mockedResume).not.toHaveBeenCalled();
+		expect(mockedCreate).toHaveBeenCalledTimes(2);
+		expect(alphaPoint()?.unavailable).toBeUndefined();
+		expect(await agentIdsInStore()).toEqual(["agent-fallback", "agent-source"]);
+	});
+
+	it("keeps a restored target durable across store reopen with only the pre-divergence branch", async () => {
+		await runAlphaThenBeta();
+		mockedResume.mockImplementationOnce(async (agentId, options) => storeWritingAgent(agentId, storeOf(options), [], "restored-done"));
+		await send(BACK_TO_ALPHA);
+		const targetAgentId = mockedResume.mock.calls[0]?.[0] as string;
+		await resetCursorProviderTestState();
+
+		const reopened = await openSessionStore();
+		try {
+			const target = await reopened.agents.get({ agentId: targetAgentId });
+			expect(target?.activeRunId ?? null).toBeNull();
+			const head = target?.latestCheckpoint?.rootBlobId;
+			const blobs = (await reopened.checkpoints.list({ filter: { agentIds: [targetAgentId] } })).items;
+			expect(head && blobs.includes(head)).toBe(true);
+			for (const blobId of blobs) {
+				const bytes = Buffer.from((await reopened.checkpoints.get({ agentId: targetAgentId, blobId }))!);
+				expect(bytes.includes(Buffer.from("Remember BETA"))).toBe(false);
+			}
+		} finally {
+			await reopened.dispose();
+		}
+	});
+
+	it("marks the point unavailable, deletes the copy target, and keeps the source when the target resume rejects", async () => {
+		await runAlphaThenBeta();
 		mockedResume.mockRejectedValueOnce(new Error("simulated checkpoint target resume failure"));
-		const fallbackSend = vi.fn().mockResolvedValue(asMockCursorRun({
-			id: "run-fallback",
-			agentId: "agent-new",
-			status: "finished",
-			wait: vi.fn().mockResolvedValue({ id: "run-fallback", status: "finished", result: "fallback-done" }),
-		}));
-		mockCreatedAgent({ agentId: "agent-new", send: fallbackSend });
 
-		const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), context, { apiKey: "test-key" }));
+		expect(await send(BACK_TO_ALPHA)).toContain("fallback-done");
 
-		expect(JSON.stringify(getDoneEvent(events).message.content)).toContain("fallback-done");
-		expect(mockedResume).toHaveBeenCalledTimes(2);
-		const targetAgentId = mockedResume.mock.calls[1]?.[0];
-		expect(targetAgentId).toMatch(/^agent-/);
-		expect(targetAgentId).not.toBe("agent-source");
-		expect(pointForFingerprint()?.unavailable).toBe(true);
-		expect(backend.getAgent(identity.stateRoot, targetAgentId as string)).toBeNull();
-		expect(backend.blobIdsFor(identity.stateRoot, targetAgentId as string)).toEqual([]);
-		expect(backend.copyTargetIds(identity.stateRoot)).toEqual([]);
-		expect(mockedCreate).toHaveBeenCalledTimes(1);
-		expect(fallbackSend).toHaveBeenCalledTimes(1);
+		expect(mockedResume).toHaveBeenCalledTimes(1);
+		expect(alphaPoint()?.unavailable).toBe(true);
+		expect(await agentIdsInStore()).toEqual(["agent-fallback", "agent-source"]);
 		const rows = await journal();
 		expect(rows.some((row) => row.action === "agent_resume" && row.phase === "error")).toBe(true);
 		expect(rows.some((row) => row.action === "agent_resume_policy" && row.reason === "checkpoint_restore_fallback")).toBe(true);
 	});
 
 	it("falls back with unavailable marking and target cleanup when the restore store open rejects", async () => {
-		const context = seedRestoreScope();
-		backend.knobs.failOpenCall = 2;
-		mockedResume.mockResolvedValueOnce(asMockSdkAgent({ agentId: "agent-old", send: vi.fn() }));
-		const fallbackSend = vi.fn().mockResolvedValue(asMockCursorRun({
-			id: "run-fallback",
-			agentId: "agent-new",
-			status: "finished",
-			wait: vi.fn().mockResolvedValue({ id: "run-fallback", status: "finished", result: "fallback-done" }),
-		}));
-		mockCreatedAgent({ agentId: "agent-new", send: fallbackSend });
+		await runAlphaThenBeta();
+		knobs.failOpenCall = 2;
 
-		const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), context, { apiKey: "test-key" }));
+		expect(await send(BACK_TO_ALPHA)).toContain("fallback-done");
 
-		expect(JSON.stringify(getDoneEvent(events).message.content)).toContain("fallback-done");
-		expect(mockedResume).toHaveBeenCalledTimes(1);
-		expect(pointForFingerprint()?.unavailable).toBe(true);
-		expect(backend.copyTargetIds(identity.stateRoot)).toEqual([]);
-		expect(mockedCreate).toHaveBeenCalledTimes(1);
-		expect(fallbackSend).toHaveBeenCalledTimes(1);
+		expect(mockedResume).not.toHaveBeenCalled();
+		expect(alphaPoint()?.unavailable).toBe(true);
+		expect(await agentIdsInStore()).toEqual(["agent-fallback", "agent-source"]);
 		const rows = await journal();
 		expect(rows.some((row) => row.action === "agent_resume_policy" && row.reason === "checkpoint_restore_fallback")).toBe(true);
-		expect(rows.some((row) => row.action === "checkpoint_restore_cleanup" && row.phase === "error")).toBe(false);
+		expect(rows.some((row) => row.action === "checkpoint_restore_cleanup")).toBe(false);
 	});
 
 	it("keeps the force-create fallback when unused target cleanup rejects, logging a diagnosable error", async () => {
-		const context = seedRestoreScope();
-		mockedResume.mockResolvedValueOnce(asMockSdkAgent({ agentId: "agent-old", send: vi.fn() }));
+		await runAlphaThenBeta();
 		mockedResume.mockRejectedValueOnce(new Error("simulated checkpoint target resume failure"));
-		backend.knobs.failAgentsDelete = true;
-		const fallbackSend = vi.fn().mockResolvedValue(asMockCursorRun({
-			id: "run-fallback",
-			agentId: "agent-new",
-			status: "finished",
-			wait: vi.fn().mockResolvedValue({ id: "run-fallback", status: "finished", result: "fallback-done" }),
-		}));
-		mockCreatedAgent({ agentId: "agent-new", send: fallbackSend });
+		knobs.failAgentsDelete = true;
 
-		const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), context, { apiKey: "test-key" }));
+		expect(await send(BACK_TO_ALPHA)).toContain("fallback-done");
 
-		expect(JSON.stringify(getDoneEvent(events).message.content)).toContain("fallback-done");
-		const targetAgentId = mockedResume.mock.calls[1]?.[0] as string;
-		expect(pointForFingerprint()?.unavailable).toBe(true);
-		expect(mockedCreate).toHaveBeenCalledTimes(1);
-		expect(fallbackSend).toHaveBeenCalledTimes(1);
-		expect(backend.blobIdsFor(identity.stateRoot, targetAgentId)).toEqual([]);
-		expect(backend.getAgent(identity.stateRoot, targetAgentId)).not.toBeNull();
+		const targetAgentId = mockedResume.mock.calls[0]?.[0] as string;
+		expect(alphaPoint()?.unavailable).toBe(true);
+		knobs.failAgentsDelete = false;
+		expect(await agentIdsInStore()).toEqual(["agent-fallback", "agent-source", targetAgentId].sort());
 		const rows = await journal();
 		expect(rows.some((row) => row.action === "checkpoint_restore_cleanup" && row.phase === "error")).toBe(true);
 		expect(rows.some((row) => row.action === "agent_resume_policy" && row.reason === "checkpoint_restore_fallback")).toBe(true);
-	});
-
-	it("resumes the copied checkpoint target and sends incrementally when restore succeeds", async () => {
-		const context = seedRestoreScope();
-		mockedResume.mockResolvedValueOnce(asMockSdkAgent({ agentId: "agent-old", send: vi.fn() }));
-		const targetSend = vi.fn().mockResolvedValue(asMockCursorRun({
-			id: "run-restored",
-			agentId: "agent-target",
-			status: "finished",
-			wait: vi.fn().mockResolvedValue({ id: "run-restored", status: "finished", result: "restored-done" }),
-		}));
-		mockedResume.mockResolvedValueOnce(asMockSdkAgent({ agentId: "agent-target", send: targetSend }));
-
-		const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), context, { apiKey: "test-key" }));
-
-		expect(JSON.stringify(getDoneEvent(events).message.content)).toContain("restored-done");
-		expect(mockedCreate).not.toHaveBeenCalled();
-		expect(targetSend).toHaveBeenCalledTimes(1);
-		const prompt = targetSend.mock.calls[0]?.[0] as { text?: string };
-		expect(prompt.text).toContain("Follow up");
-		expect(prompt.text).not.toContain("User: Hello");
-		expect(prompt.text).not.toContain("Prior answer");
-		expect(pointForFingerprint()?.unavailable).toBeUndefined();
-		const rows = await journal();
-		expect(rows.some((row) => row.reason === "checkpoint_restore_fallback")).toBe(false);
 	});
 });
