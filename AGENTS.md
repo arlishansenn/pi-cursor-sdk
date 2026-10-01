@@ -174,10 +174,10 @@ When plans, reviews, investigations, or generated smoke/debug artifacts are no l
 - Scrub Cursor SDK errors and output that may contain API keys, bearer tokens, cookies, sessions, or auth headers.
 - `PI_CURSOR_SDK_EVENT_DEBUG=1` and `npm run debug:provider-events` write raw local artifacts that may include prompts, tool args/results, local paths, or secrets; keep them under gitignored `.debug/`, do not print or commit them, and keep run-scoped debug state explicit rather than process-global.
 - Ambient Cursor settings/rules loading is enabled by default through `PI_CURSOR_SETTING_SOURCES=all`; keep SDK startup log filtering intact so settings/skills output does not corrupt pi's TUI. Users can narrow or disable Cursor setting sources explicitly when desired.
-- Live `pi`/Cursor smoke tests may call external services and require Cursor auth in `~/.pi/agent/auth.json` and/or `CURSOR_API_KEY`; run them for Cursor provider/runtime changes. If auth is unavailable, report live smoke as release-blocked instead of skipped-ready. See `docs/cursor-testing-lessons.md` for isolated harness auth seeding.
+- 普通 commit / PR 默认使用 focused offline tests、typecheck 和必要的 build。真实 `pi` / Cursor smoke 可能调用外部服务并产生费用，仅在操作员明确要求时运行；存在 auth 或 runtime 改动不等于授权。未运行时报告真实 runtime 未验证，不阻止普通提交或开 PR。申请 release-ready 时按下方 release gate 验证；缺少 auth 或平台资源则阻止发布。参见 `docs/cursor-testing-lessons.md`。
 - For live runtime evidence, use `cursor/grok-4.6:slow` as much as needed. If Cursor Cloud does not support that exact model variant, use `cursor/grok-4.6`.
 - Live Cursor Cloud probes that create `bc-*` agents must capture agent/run IDs, verify archive/delete cleanup, and report any residual agent; do not assume cleanup from a passed smoke.
-- For Cursor provider/runtime changes, the canonical local runtime release and pre-commit gate is `npm run smoke:platform:all`; see `docs/platform-smoke.md`. That script runs doctor before the macOS and Ubuntu lanes. Windows is not a verified platform target. Cloud runtime changes must also run the opt-in `npm run smoke:cloud` lane. The platform gate uses packed installs across macOS and Ubuntu with PTY capture, host-rendered xterm/PNG visual evidence, JSONL assertions, bridge diagnostics, usage/cache checks, abort cleanup, artifact manifests, and redaction scans. Use `docs/cursor-live-smoke-checklist.md`, `npm run smoke:visual`, `npm run smoke:live`, or direct `pi --approve -e . --cursor-no-fast --model cursor/grok-4.6` runs only for inner-loop debugging and focused visual/card audits before the full platform gate. Do not mark release-ready with optional/deferred/mostly-passing platform smoke items outstanding.
+- For Cursor provider/runtime releases, the canonical local runtime release gate is `npm run smoke:platform:all`; see `docs/platform-smoke.md`. That script runs doctor before the macOS and Ubuntu lanes. Windows is not a verified platform target. Cloud runtime changes must also run the opt-in `npm run smoke:cloud` lane. The platform gate uses packed installs across macOS and Ubuntu with PTY capture, host-rendered xterm/PNG visual evidence, JSONL assertions, bridge diagnostics, usage/cache checks, abort cleanup, artifact manifests, and redaction scans. Use `docs/cursor-live-smoke-checklist.md`, `npm run smoke:visual`, `npm run smoke:live`, or direct `pi --approve -e . --cursor-no-fast --model cursor/grok-4.6` runs only for inner-loop debugging and focused visual/card audits before the full platform gate. Do not mark release-ready with optional/deferred/mostly-passing platform smoke items outstanding.
 
 ## PR review workflow (maintainer)
 
@@ -186,7 +186,7 @@ When the user requests a PR review (including thermo-nuclear / deep maintainabil
 - Remediate **every** finding, structural and polish; do not leave “nice to have” items open.
 - When **you are the parent maintainer session** orchestrating remediation (not a delegated child worker), prefer dispatching a remedial code/docs subagent; the parent coordinates review, commit, push, and re-review loops. Child workers should implement assigned fixes directly and must not inherit subagent-dispatch instructions from this section.
 - After remediations land, **repeat the review** on the updated branch until there are **no** remaining findings (including docs/PR-body drift and test-contract gaps).
-- Do not approve on passing unit tests alone. Thermo-nuclear review is maintainability-only and does **not** tell you to skip live smoke; repo smoke gates live here and in `docs/cursor-live-smoke-checklist.md`.
+- PR 代码 review 与 release-ready 分开。Thermo-nuclear review 只验证 maintainability；普通 PR 不因未授权的 live smoke 受阻，但必须披露真实 runtime 未验证。release gate 见本文件与 `docs/cursor-live-smoke-checklist.md`。
 
 ## Release review gate (maintainer)
 
@@ -196,14 +196,12 @@ Before publishing any npm/GitHub release or tagging release-ready status:
 - Remediate every finding, including polish. Repeat the review/fix loop until the reviewer reports no remaining findings.
 - This release review gate is in addition to the platform smoke gate; it does not replace `npm run smoke:platform:all`.
 
-## Pre-commit live smoke (maintainer)
+## 普通提交与 PR 验证
 
-Before **every commit** that touches Cursor provider/runtime, prompt/session send policy, agents-context dedup, bridge, replay, or related extension wiring:
-
-- Run the canonical local platform gate: `npm run smoke:platform:all` (see `docs/platform-smoke.md`; it runs doctor first). Also run `npm run smoke:cloud` when the commit touches actual cloud runtime execution.
-- Use `npm run smoke:live` (`scripts/tmux-live-smoke.sh`), `npm run smoke:visual` (`scripts/visual-tui-smoke.mjs`), `npm run smoke:isolated`, or direct `pi -e . --cursor-no-fast --model cursor/grok-4.6` only as inner-loop/debug helpers when narrowing a specific failure before the platform gate. For card/color claims, capture ANSI from the offscreen TUI, render it through the canonical browser/xterm path, save PNG evidence, and inspect JSONL.
-- If Cursor auth (`~/.pi/agent/auth.json` or `CURSOR_API_KEY`) or required Crabbox/platform resources are unavailable, **do not commit**—report blocked, not skipped-ready.
-- Unit tests (`npm test`, `npm run typecheck`) are necessary but not sufficient for these commits.
+- 根据改动运行 focused offline tests、`npm run typecheck` 和必要的 `npm run build`。docs-only 改动检查一致性与 `git diff --check`，无需运行模型。
+- 先检查测试是否包含真实 SDK / 网络入口；未经明确要求不运行这些入口，即使使用无效 key。完整测试中的 live contract tests 同样受此限制。
+- `smoke:platform:all`、`smoke:cloud`、`smoke:live`、`smoke:visual`、`smoke:isolated` 和直接 `pi` 模型请求均为显式 opt-in，不是普通 commit / PR / merge 的默认门禁。
+- 报告已运行的检查、失败及未验证的真实 runtime；未运行 smoke 不得写成通过。release-ready 仍须完成完整 release gate，不以普通 PR 的离线结果代替。
 
 ## Progress updates and handoff
 
@@ -225,6 +223,6 @@ This is a `pi` provider extension (not a server/web app). "Running the app" mean
 - When capturing print-mode (`-p`) output, redirect stdout to a file rather than piping through `tail`/`head` — those pipes buffer until the process exits, hiding streaming progress.
 - Use sessionful runs (`--session-dir`/`--session-id`, not `--no-session`) when testing session ledgers, resume identity, branch/fork/clone/switch behavior, or slash commands such as `/cursor-cloud`; `--no-session` is only proof for one-shot provider behavior.
 - For slow cloud or slash-command probes, prefer print mode for model turns or raw JSONL RPC with an explicit timeout; the packaged `RpcClient` has a fixed 30s request timeout that can falsely fail long cloud operations.
-- Basic setup validation here is unit/typecheck/print-mode only. `npm run smoke:platform:all` remains the maintainer local-runtime release/pre-commit gate and needs the full macOS/Ubuntu matrix hosts; a Linux-only cloud agent cannot satisfy that gate. Treat Linux-only `smoke:visual` / `smoke:local-resume` / `smoke:platform:doctor` results as partial evidence, not release-ready.
+- 默认 setup / commit / PR 验证使用 offline tests、typecheck 和必要的 build；print-mode 模型请求同样需要明确授权。`npm run smoke:platform:all` 仅为 local-runtime release gate，需要完整 macOS/Ubuntu matrix；单个 Linux cloud agent 无法满足该 release gate。 Treat Linux-only `smoke:visual` / `smoke:local-resume` / `smoke:platform:doctor` results as partial evidence, not release-ready.
 - Visual smoke (`npm run smoke:visual`) needs `pi` on `PATH` (`export PATH="$PWD/node_modules/.bin:$PATH"`) and Playwright Chromium (`npx playwright install chromium`) for PNG capture; use `--no-screenshot` if Chromium is unavailable.
 - `npm run smoke:live` needs `pi` on `PATH`. Prefer `./node_modules/.bin` on `PATH` rather than relying on a global install.
