@@ -45,9 +45,18 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs = BILLED_USAGE_TIMEOUT_MS
 		timer = setTimeout(() => resolve(undefined), timeoutMs);
 		timer.unref?.();
 	});
-	return Promise.race([promise.catch(() => undefined), timeout]).finally(() => {
+	return Promise.race([promise, timeout]).finally(() => {
 		if (timer) clearTimeout(timer);
 	});
+}
+
+// The usage endpoint rejects some accounts with 403 feature_unavailable (observed 2026-10-01,
+// stable across calls). Treat it as account-level: stop calling getUsage for the process lifetime.
+let billedUsageUnavailable = false;
+
+function isCursorBilledUsageUnavailableError(error: unknown): boolean {
+	const record = asRecord(error);
+	return record?.code === "feature_unavailable" || record?.status === 403;
 }
 
 export function selectCursorBilledTurnUsage(
@@ -72,12 +81,18 @@ export async function fetchCursorSdkAgentUsage(
 	agent: SDKAgent,
 	options: { runtime: CursorRuntime; runId?: string },
 ): Promise<unknown | undefined> {
+	if (billedUsageUnavailable) return undefined;
 	if (typeof agent.getUsage !== "function") return undefined;
 	const query =
 		options.runtime === "cloud" && options.runId && isCursorSdkClientMintedRunId(options.runId)
 			? { runId: options.runId }
 			: undefined;
-	return withTimeout(Promise.resolve(agent.getUsage(query)));
+	try {
+		return await withTimeout(Promise.resolve(agent.getUsage(query)));
+	} catch (error) {
+		if (isCursorBilledUsageUnavailableError(error)) billedUsageUnavailable = true;
+		return undefined;
+	}
 }
 
 export async function attachCursorSdkBilledTurnUsage(options: {
@@ -103,5 +118,6 @@ export async function attachCursorSdkBilledTurnUsage(options: {
 export const __testUtils = {
 	reset(): void {
 		seenBilledRunIdsByAgent.clear();
+		billedUsageUnavailable = false;
 	},
 };

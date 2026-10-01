@@ -88,3 +88,21 @@ describe("cursor billed usage selection", () => {
 		await expect(fetchCursorSdkAgentUsage(agent, { runtime: "local" })).resolves.toBeUndefined();
 	}, 8000);
 });
+
+describe("billed usage account capability", () => {
+	it("stops calling getUsage after a feature_unavailable rejection", async () => {
+		const getUsage = vi.fn().mockRejectedValue({ code: "feature_unavailable", status: 403 });
+		const agent = { getUsage } as unknown as SDKAgent;
+		await expect(fetchCursorSdkAgentUsage(agent, { runtime: "local" })).resolves.toBeUndefined();
+		await expect(fetchCursorSdkAgentUsage(agent, { runtime: "cloud", runId: "run-1" })).resolves.toBeUndefined();
+		expect(getUsage).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps retrying non-capability errors", async () => {
+		const getUsage = vi.fn().mockRejectedValue(new Error("network down"));
+		const agent = { getUsage } as unknown as SDKAgent;
+		await expect(fetchCursorSdkAgentUsage(agent, { runtime: "local" })).resolves.toBeUndefined();
+		await expect(fetchCursorSdkAgentUsage(agent, { runtime: "local" })).resolves.toBeUndefined();
+		expect(getUsage).toHaveBeenCalledTimes(2);
+	});
+});

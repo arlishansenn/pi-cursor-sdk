@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Stop calling `agent.getUsage()` once the account rejects the usage endpoint with `403 feature_unavailable` (observed 2026-10-01, stable across calls; probe evidence in the linked PR). The billed branch previously swallowed the rejection like a timeout and retried a guaranteed-403 request on every turn finalize, so `billed` usage rows never appeared for such accounts; after one rejection the extension skips the call for the rest of the process, and non-capability errors (timeouts, network) still retry as before.
+
 ### Docs
 
 - Document that ambient Cursor **plugins** and **file hooks** load with `PI_CURSOR_SETTING_SOURCES=all`, and add evidence that a machine-local context-mode install reaches the SDK local agent ([docs/evidence/cursor-ambient-context-mode-2026-10-01.md](docs/evidence/cursor-ambient-context-mode-2026-10-01.md); [docs/cursor-tool-surfaces.md](docs/cursor-tool-surfaces.md)).
