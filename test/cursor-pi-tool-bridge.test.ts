@@ -288,6 +288,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 				],
 			});
 			expect(run.hasPendingPiToolCallId(request.piToolCallId)).toBe(true);
+			expect(run.hasPendingToolCalls()).toBe(true);
 
 			await run.resolveToolResultsFromContext({
 				systemPrompt: "",
@@ -303,6 +304,7 @@ describe("cursor pi tool bridge loopback MCP lifecycle", () => {
 				],
 			});
 			await expect(callPromise).resolves.toMatchObject({ content: [{ type: "text", text: "current result" }] });
+			expect(run.hasPendingToolCalls()).toBe(false);
 		} finally {
 			await client.close().catch(() => undefined);
 			await transport.close().catch(() => undefined);

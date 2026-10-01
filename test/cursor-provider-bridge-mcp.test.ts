@@ -508,8 +508,9 @@ describe("streamCursor bridge MCP", () => {
 		expect(hasEventType(events, "toolcall_start")).toBe(false);
 	});
 
-	it("rejects pending bridge MCP waits, clears live runs on idle disposal, and abandons the session agent", async () => {
+	it("keeps the live run through idle disposal while a bridge call is pending, then releases it after the call timeout", async () => {
 		process.env.PI_CURSOR_EXPOSE_BUILTIN_TOOLS = "1";
+		process.env.PI_CURSOR_PI_BRIDGE_CALL_TIMEOUT_MS = "1000";
 		cursorProviderTestUtils.setCursorNativeReplayIdleDisposeMs(1);
 		registerBridgeForProviderTest({
 			active: ["read"],
@@ -544,12 +545,18 @@ describe("streamCursor bridge MCP", () => {
 			expect(firstDone.reason).toBe("toolUse");
 			expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(1);
 
-			await vi.waitFor(() => expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0));
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(1);
+			expect(mockDispose).not.toHaveBeenCalled();
+
 			const error = await callErrorPromise;
 			expect(error).toBeInstanceOf(Error);
-				expect((error as Error).message).toMatch(/disposed|cancelled|released|MCP error/i);
-			expect(mockDispose).toHaveBeenCalledTimes(1);
+			expect((error as Error).message).toMatch(/timed out/i);
+			// Release happens on the next idle tick after the pending call clears.
+			await vi.waitFor(() => expect(mockDispose).toHaveBeenCalledTimes(1));
+			expect(cursorProviderTestUtils.pendingCursorNativeRunCount()).toBe(0);
 		} finally {
+			delete process.env.PI_CURSOR_PI_BRIDGE_CALL_TIMEOUT_MS;
 			await client.close().catch(() => undefined);
 			await transport.close().catch(() => undefined);
 		}
