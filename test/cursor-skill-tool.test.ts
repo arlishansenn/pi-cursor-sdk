@@ -11,7 +11,10 @@ import {
 	resolveCursorSkillSystemPrompt,
 } from "../src/cursor-skill-tool.js";
 import { buildCursorPiToolBridgeSnapshot } from "../src/cursor-pi-tool-bridge.js";
-import { buildCursorPrompt } from "../src/context.js";
+import { runHarnessBeforeAgentStartWithPi } from "./helpers/pi-system-prompt.js";
+import { registerCursorAgentsContextDedup } from "../src/cursor-agents-context-registration.js";
+import { planCursorSessionSend } from "../src/cursor-session-send-policy.js";
+import { computeCursorContextFingerprint, buildCursorPrompt } from "../src/context.js";
 import {
 	createDefaultSystemPromptOptions,
 	createExtensionTestContext,
@@ -22,6 +25,7 @@ import {
 
 afterEach(() => {
 	delete process.env.PI_CURSOR_RUNTIME;
+	delete process.env.PI_CURSOR_PI_TOOL_BRIDGE;
 });
 
 function makeSkill(overrides: Partial<Skill> & Pick<Skill, "name" | "filePath">): Skill {
@@ -117,7 +121,85 @@ describe("resolveCursorSkillSystemPrompt", () => {
 	});
 });
 
+describe("runHarnessBeforeAgentStartWithPi", () => {
+	it("preserves handler failure text from the installed runner", async () => {
+		const pi = createPiHarness();
+		pi.on("before_agent_start", () => { throw new Error("sentinel handler failure"); });
+		await expect(runHarnessBeforeAgentStartWithPi(
+			pi,
+			createDefaultSystemPromptOptions("/repo"),
+			createExtensionTestContext({ cwd: "/repo" }),
+		)).rejects.toThrow("sentinel handler failure");
+	});
+});
+
 describe("registerCursorSkillTool", () => {
+	it("renders the skill tool in the first forced prompt and keeps the follow-up incremental", async () => {
+		const pi = createPiHarness({ activeTools: ["read"] });
+		registerCursorSkillTool(pi);
+		registerCursorAgentsContextDedup(pi);
+		const ctx = createExtensionTestContext({ model: makeModel("composer-2.5"), cwd: "/repo" });
+		const tool = getHarnessRegisteredTool(pi._tools, CURSOR_ACTIVATE_SKILL_TOOL_NAME);
+		const render = () => runHarnessBeforeAgentStartWithPi(pi, {
+			...createDefaultSystemPromptOptions("/repo"),
+			selectedTools: pi.getActiveTools(),
+			toolSnippets: { [tool.name]: tool.promptSnippet! },
+			toolGuidelines: { [tool.name]: tool.promptGuidelines! },
+			skills: [makeSkill({ name: "global-skill", filePath: "/skills/global-skill/SKILL.md" })],
+		}, ctx);
+		const first = await render();
+		const second = await render();
+		expect(first.systemPrompt).toContain(tool.promptSnippet);
+		for (const guideline of tool.promptGuidelines!) expect(first.systemPrompt).toContain(guideline);
+		expect(first.options.selectedTools).toContain(tool.name);
+		expect(first.options.forceSystemPrompt).toBe(first.systemPrompt);
+		expect(second.systemPrompt).toBe(first.systemPrompt);
+		const initial = { systemPrompt: first.systemPrompt, messages: [{ role: "user" as const, content: "hello", timestamp: 1 }] };
+		expect(planCursorSessionSend({ bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0 }, initial))
+			.toEqual({ mode: "bootstrap", reason: "initial", resetAgent: false });
+		const state = { bootstrapped: true, contextFingerprint: computeCursorContextFingerprint(initial), incrementalSendCount: 0 };
+		const followup = { systemPrompt: second.systemPrompt, messages: [...initial.messages, { role: "user" as const, content: "follow up", timestamp: 2 }] };
+		expect(planCursorSessionSend(state, followup)).toEqual({ mode: "incremental", reason: "incremental", resetAgent: false });
+		expect(planCursorSessionSend(state, { ...followup, systemPrompt: `${second.systemPrompt} changed` }))
+			.toEqual({ mode: "bootstrap", reason: "context_divergence", resetAgent: true });
+	});
+
+	it.each(["disabled", "selection-disabled", "bridge-off", "cloud", "other-model", "no-skills"])(
+		"keeps skill tool declarations inactive for %s",
+		async (boundary) => {
+			if (boundary === "bridge-off") process.env.PI_CURSOR_PI_TOOL_BRIDGE = "0";
+			if (boundary === "cloud") process.env.PI_CURSOR_RUNTIME = "cloud";
+			const pi = createPiHarness({ activeTools: boundary === "disabled" ? [] : ["read"] });
+			registerCursorSkillTool(pi);
+			const tool = getHarnessRegisteredTool(pi._tools, CURSOR_ACTIVATE_SKILL_TOOL_NAME);
+			const selectedTools = boundary === "selection-disabled" ? [] : pi.getActiveTools();
+			const result = await runHarnessBeforeAgentStartWithPi(pi, {
+				...createDefaultSystemPromptOptions("/repo"), selectedTools,
+				toolSnippets: { [tool.name]: tool.promptSnippet! },
+				toolGuidelines: { [tool.name]: tool.promptGuidelines! },
+				skills: boundary === "no-skills" ? [] : [makeSkill({ name: "global-skill", filePath: "/skills/global-skill/SKILL.md" })],
+			}, createExtensionTestContext({
+				cwd: "/repo", model: boundary === "other-model" ? { ...makeModel(), provider: "anthropic", api: "anthropic-messages" } : makeModel(),
+			}));
+			expect(pi.getActiveTools()).not.toContain(tool.name);
+			expect(result.options.selectedTools).toEqual(selectedTools);
+			expect(result.systemPrompt).not.toContain(tool.promptSnippet);
+			for (const guideline of tool.promptGuidelines!) expect(result.systemPrompt).not.toContain(guideline);
+			if (boundary === "no-skills" || boundary === "cloud") expect(result.systemPrompt).not.toContain("<available_skills>");
+		},
+	);
+
+	it("preserves an earlier handler's explicit selection rather than copying all active tools", async () => {
+		const pi = createPiHarness({ activeTools: ["read", "bash"] });
+		pi.on("before_agent_start", (event) => { event.systemPromptOptions.selectedTools = ["read"]; });
+		registerCursorSkillTool(pi);
+		const result = await runHarnessBeforeAgentStartWithPi(pi, {
+			...createDefaultSystemPromptOptions("/repo"), selectedTools: pi.getActiveTools(),
+			skills: [makeSkill({ name: "global-skill", filePath: "/skills/global-skill/SKILL.md" })],
+		}, createExtensionTestContext({ cwd: "/repo", model: makeModel() }));
+		expect(result.options.selectedTools).toEqual(["read", CURSOR_ACTIVATE_SKILL_TOOL_NAME]);
+	});
+
 	it("adds a bridgeable activation tool for Cursor runs with visible pi skills", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "pi-cursor-skill-"));
 		const skillDir = join(dir, "global-skill");
