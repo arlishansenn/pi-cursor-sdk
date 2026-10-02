@@ -74,9 +74,20 @@ function syncCursorSkillToolForModel(
 	pi: Pick<ExtensionAPI, "getActiveTools" | "setActiveTools">,
 	model: ExtensionContext["model"],
 	runtime: CursorRuntime,
+	systemPromptOptions?: BuildSystemPromptOptions,
 ): void {
 	const activeToolNames = new Set(pi.getActiveTools());
-	const shouldBeActive = !arePiToolsDisabled(pi) && shouldExposeSkillTool(model, runtime);
+	const shouldBeActive = !arePiToolsDisabled(pi)
+		&& systemPromptOptions?.selectedTools?.length !== 0
+		&& shouldExposeSkillTool(model, runtime);
+	// Pi renders event.systemPrompt from this turn's options, not the live tool set.
+	// Align only our tool before a handler freezes that rendering into a forced prompt.
+	if (systemPromptOptions?.selectedTools) {
+		const selectedTools = new Set(systemPromptOptions.selectedTools);
+		if (shouldBeActive) selectedTools.add(CURSOR_ACTIVATE_SKILL_TOOL_NAME);
+		else selectedTools.delete(CURSOR_ACTIVATE_SKILL_TOOL_NAME);
+		systemPromptOptions.selectedTools = [...selectedTools];
+	}
 	const alreadyActive = activeToolNames.has(CURSOR_ACTIVATE_SKILL_TOOL_NAME);
 	if (shouldBeActive === alreadyActive) return;
 	if (shouldBeActive) {
@@ -257,7 +268,7 @@ export function registerCursorSkillTool(pi: CursorSkillToolExtensionApi): void {
 			} else {
 				setCurrentSkills([]);
 			}
-			syncCursorSkillToolForModel(pi, ctx.model, runtime);
+			syncCursorSkillToolForModel(pi, ctx.model, runtime, event.systemPromptOptions);
 			const resolved = resolveCursorSkillSystemPrompt(event.systemPrompt, ctx.model, event.systemPromptOptions, runtime);
 			if (resolved === event.systemPrompt) return undefined;
 			return { systemPrompt: resolved };
