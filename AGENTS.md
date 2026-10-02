@@ -105,7 +105,7 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 ## Operating rules
 
 - Prefer the smallest change that preserves the current pi user contract.
-- Package 0.4.0 requires Node 24+ and official Pi 0.87.1+. Compatibility targets are official Pi 0.87.1/latest and current `fitchmultz/pi` main; optional Pi and TypeBox peer ranges stay `"*"` per Pi guidance.
+- Package 0.4.0 requires the Node range in `engines` and official Pi 0.87.1+. Compatibility targets are official Pi 0.87.1/latest and current `fitchmultz/pi` main; optional Pi and TypeBox peer ranges stay `"*"` per Pi guidance.
 - Treat Cursor SDK model metadata as the source of truth for model IDs, parameters, variants, thinking controls, and context variants. Do not hardcode new model-specific behavior unless it is a documented fallback.
 - HARD REPO RULE: never guess what the Cursor SDK outputs, expects, or does. Always verify Cursor SDK behavior against the installed `@cursor/sdk` package and/or the official TypeScript SDK docs at `https://cursor.com/docs/sdk/typescript` before making claims or implementation changes.
 - Contract-test external behavior before relying on it: when code depends on Cursor SDK/pi runtime payloads, timing, lifecycle, errors, usage accounting, or tool/event shapes, add or update a focused test that asserts the observed installed-package/docs/captured-fixture contract and fails if that contract drifts. Do not replace this with mocks based on guesses.
@@ -119,7 +119,7 @@ This repository is a pi provider extension that registers Cursor SDK-backed mode
 ## Setup and commands
 
 - Install dependencies: `npm install` (runs `prepare`, which compiles `src/` into `dist/` — the manifest entry pi loads)
-- Use Node 24+. The platform smoke baseline is Node 24 on macOS and Ubuntu.
+- Use the Node range in `engines`. The platform smoke baseline covers macOS and Ubuntu.
 - Build after editing `src/`: `npm run build` — required before any direct `pi -e .` run, or pi loads the previous build. The cloud/steering/local-resume/provider-debug launchers rebuild automatically (even when run directly with `node scripts/...`), `smoke:live`/`smoke:visual`/`smoke:isolated` build via their npm scripts, and `smoke:platform*` builds inside its packed installs; only direct `pi -e .` runs need a manual build.
 - Run tests: `npm test`
 - Typecheck (src + tests): `npm run typecheck`
@@ -216,7 +216,7 @@ Keep this file concise and repo-specific. Update it when commands, package layou
 This is a `pi` provider extension (not a server/web app). "Running the app" means launching `pi` with this extension loaded. Standard commands live in `## Setup and commands`; only the non-obvious caveats are below.
 
 - Dependencies install with `npm install` (this triggers `prepare`, which compiles `src/` to `dist/`; the pi manifest loads `dist/index.js`). After editing `src/`, run `npm run build` before any `pi -e .` run or the extension loads the previous build.
-- Node: `engines` requires `>=24`. Use Node 24 on `PATH` for tests and live `pi`. Older Node is unsupported.
+- Node: use the range in `engines` on `PATH` for tests and live `pi`; versions outside it are unsupported.
 - `CURSOR_API_KEY` is provided as a cloud-agent secret, so live Cursor runs and full live model discovery work without `/login`. `npm test`, `npm run typecheck`, and `npm pack --dry-run` need no key.
 - Run the extension locally with `./node_modules/.bin/pi -e . --model cursor/grok-4.6` (the bare `pi` is not on `PATH`). Add `--approve` for interactive sessions; print-mode smoke: `./node_modules/.bin/pi -e . --model cursor/grok-4.6 --cursor-no-fast --no-session -p "..."`.
 - Cold-start gotcha: the *first* Cursor SDK run in a fresh VM can take several minutes (SDK/transport warm-up); subsequent runs complete in ~10s. Warm up with one throwaway run before any timing-sensitive or recorded demo, and don't treat a slow first run as a hang.
