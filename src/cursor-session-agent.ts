@@ -538,6 +538,9 @@ async function createSessionAgentEntry(
 		let resumeNotice = storeSelection.resumeFallback ? LOCAL_RESUME_FALLBACK_NOTICE : undefined;
 		const buildAgentOptions = () => ({
 			apiKey: params.apiKey,
+			// Cursor 云端 managed skills 不在本工作流使用；同步走全局 fetch 且
+			// api.cursor.com 间歇性阻断，失败时每轮会话打 WARN。直接关闭同步。
+			includeManagedSkills: false,
 			model: params.modelSelection,
 			mode: params.agentMode,
 			local: buildCursorLocalAgentOptions({
