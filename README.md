@@ -627,6 +627,10 @@ Many runs never expose web activity as replayable SDK tool completions or local 
 
 **Web fetch:** `pi-cursor-sdk` can display `webFetchToolCall` transcript records and web-fetch-shaped MCP/host completions when Cursor reports them. It cannot make Cursor expose or execute a `WebFetch` tool. If Cursor's current local SDK tool set does not include WebFetch, pi cannot fetch a URL through Cursor web fetch; use an allowed browser/shell/MCP tool instead.
 
+### `/btw` on a `cursor/*` model
+
+`/btw` (pi-btw) opens a nested pi session with its own session id. On `cursor/*` that nested id is a **nested Cursor agent**: it does not steal or replace the parent session's Cursor agent, and it is cleared after the nested turn. Prefer pi's interactive TUI for the BTW overlay; outside TUI pass the question inline (`/btw …`). See [Cursor tool surfaces — Nested pi sessions](docs/cursor-tool-surfaces.md#nested-pi-sessions-btw-and-compaction) and [ADR 0001](docs/adr/0001-session-identity-and-checkpoint-restore.md).
+
 ### I disabled MCP in pi but Cursor still has extra tools
 
 pi extension toggles and pi's MCP catalog do not control Cursor ambient MCP. Local Cursor agents load MCP servers from Cursor setting sources (`PI_CURSOR_SETTING_SOURCES=all` by default), including user `~/.cursor/mcp.json`, project `.cursor/mcp.json`, and **plugin-declared** servers under `~/.cursor/plugins/local/`. File hooks come from `~/.cursor/hooks.json` (and project `.cursor/hooks.json`) on the same gate. To remove a user-file server, edit or clear that file (or Cursor MCP settings) and restart the pi session; plugin MCP is separate from `mcp.json`. Or narrow/disable sources with `PI_CURSOR_SETTING_SOURCES=none` or a comma-separated subset. See [Cursor tool surfaces in pi](docs/cursor-tool-surfaces.md) and [ambient context-mode evidence](docs/evidence/cursor-ambient-context-mode-2026-10-01.md).

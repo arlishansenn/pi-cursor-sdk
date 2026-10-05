@@ -16,8 +16,9 @@ Installed `@cursor/sdk` 1.0.32 `Agent.resume(agentId, options?)` takes an agent 
 
 - Remove the fixed 20-send recreate. `incrementalSendCount` stays on send state for diagnostics only.
 - Bind `options.sessionId` in the existing scope module for the whole provider call, including queue selection and the turn runner:
-  - lifecycle session id and request session id must match before acquire/send;
+  - a request id that matches the lifecycle session id binds the parent session-file or ephemeral scope;
   - a missing request id leaves the session-file or ephemeral scope unchanged;
+  - a request id that **differs** from the lifecycle session id is a **nested Cursor run** (pi compaction summarization, pi-btw `/btw` child sessions, and similar). It uses request isolation (`__request__:` pool), does not touch the parent session agent, and resets that nested pool after the turn so one-shot ids cannot accumulate SDK resources. Mid-turn scope corruption still fails closed via `assertCursorRequestScope`;
   - a request id with no lifecycle scope is async-context-local and selects a `__request__:` pool key only inside that call. It does not mutate a process-global binding.
 - One action-turn context covers the identity decision and later create/resume/send records. A nested runner reuses that turn id.
 - Do not send `x-session-affinity`, and do not use the pi session id as a Cursor agent id or send idempotency key.

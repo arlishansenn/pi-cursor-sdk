@@ -39,12 +39,14 @@ describe("cursor session turn queue", () => {
 
 		await flushQueue();
 		expect(events).toEqual(["first:start"]);
+		expect(cursorSessionTurnQueueTestUtils.activeCount("scope")).toBe(2);
 
 		releaseFirst.resolve();
 		await expect(first).resolves.toBe("first");
 		await expect(second).resolves.toBe("second");
 		expect(events).toEqual(["first:start", "first:end", "second:start"]);
 		expect(cursorSessionTurnQueueTestUtils.count()).toBe(0);
+		expect(cursorSessionTurnQueueTestUtils.activeCount("scope")).toBe(0);
 	});
 
 	it("allows different scopes to overlap", async () => {

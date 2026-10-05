@@ -9,6 +9,7 @@ import { streamCursor } from "../src/cursor-provider.js";
 import { __testUtils as cursorSessionAgentTestUtils } from "../src/cursor-session-agent.js";
 import { __testUtils as resumeTestUtils } from "../src/cursor-session-agent-resume.js";
 import { getCursorSessionFile, getCursorSessionScopeKey, __testUtils as cursorSessionScopeTestUtils } from "../src/cursor-session-scope.js";
+import { __testUtils as cursorSessionTurnQueueTestUtils } from "../src/cursor-session-turn-queue.js";
 import { buildCursorModelSelection } from "../src/model-discovery.js";
 import {
 	asMockCursorRun,
@@ -188,21 +189,6 @@ describe("streamCursor session identity", () => {
 		expect(mockedCreate).toHaveBeenCalledTimes(1);
 	});
 
-	it("fails a queued request-only call when a lifecycle scope starts before acquire", async () => {
-		const release = holdDefaultCursorAgentSend();
-		const context = makeContext();
-		const first = collectEvents(streamCursor(makeModel("gpt-5.5@1m"), context, { apiKey: "test-key", sessionId: "direct-a" }));
-		await vi.waitFor(() => expect(mockedCreate).toHaveBeenCalledTimes(1));
-		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/B.jsonl", "B");
-		const second = collectEvents(streamCursor(makeModel("gpt-5.5@1m"), context, { apiKey: "test-key", sessionId: "direct-a" }));
-		release();
-		expect((await first).some((event) => event.type === "error")).toBe(false);
-		expect((await second).some((event) => event.type === "error")).toBe(true);
-		expect(mockedCreate).toHaveBeenCalledTimes(1);
-	});
-
-
-
 	it("fails before acquire when the lifecycle scope changes during pre-send drain", async () => {
 		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/A.jsonl", "A");
 		const { __testUtils: drainTestUtils } = await import("../src/cursor-provider-live-run-drain.js");
@@ -264,7 +250,7 @@ describe("streamCursor session identity", () => {
 		expect(mockedCreate).toHaveBeenCalledTimes(2);
 	});
 
-	it("rejects a mismatched request id again once the compaction window has ended", async () => {
+	it("isolates a mismatched request id after the compaction window ends (nested extension sessions)", async () => {
 		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/summary2.jsonl", "lifecycle-summary2");
 		const send = vi.fn().mockImplementation(async () => finishedRun("run-summary2", "agent-summary2"));
 		mockedCreate.mockResolvedValue(asMockSdkAgent({ agentId: "agent-summary2", send }));
@@ -283,10 +269,12 @@ describe("streamCursor session identity", () => {
 			sessionId: "summary-routing-id-2",
 		}));
 
-		expect(after.some((event) => event.type === "error")).toBe(true);
-		expect(sendAfter).not.toHaveBeenCalled();
+		expect(after.some((event) => event.type === "error")).toBe(false);
+		expect(sendAfter).toHaveBeenCalledTimes(1);
+		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState("__request__:summary-routing-id-2").status).toBe("empty");
 		const rows = await journal();
-		expect(rows.some((row) => row.action === "session_identity" && row.reason === "session_id_conflict")).toBe(true);
+		expect(rows.some((row) => row.action === "session_identity" && row.reason === "nested_request")).toBe(true);
+		expect(rows.some((row) => row.action === "session_identity" && row.reason === "session_id_conflict")).toBe(false);
 	});
 
 	it("clears the summarization window when a request carries the lifecycle session id", async () => {
@@ -303,22 +291,107 @@ describe("streamCursor session identity", () => {
 		expect(cursorSessionScopeTestUtils.isSummarizationWindow()).toBe(false);
 	});
 
-	it("fails before send when the request session id conflicts with the lifecycle session id", async () => {
+	it("isolates a nested request id from the parent lifecycle agent and disposes the nested pool after the turn", async () => {
 		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/owned.jsonl", "lifecycle-owned");
-		const send = vi.fn().mockImplementation(async () => finishedRun("run-owned", "agent-owned"));
-		mockedCreate.mockResolvedValue(asMockSdkAgent({ agentId: "agent-owned", send }));
+		const parentSend = vi.fn().mockImplementation(async () => finishedRun("run-parent", "agent-parent"));
+		const nestedSend = vi.fn().mockImplementation(async () => {
+			expect(getCursorSessionScopeKey()).toBe("__request__:btw-nested-id");
+			return finishedRun("run-nested", "agent-nested");
+		});
+		mockedCreate
+			.mockResolvedValueOnce(asMockSdkAgent({ agentId: "agent-parent", send: parentSend }))
+			.mockResolvedValueOnce(asMockSdkAgent({ agentId: "agent-nested", send: nestedSend }));
 
-		const events = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), {
+		const parentContext = makeContext();
+		const parentFirst = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), parentContext, {
 			apiKey: "test-key",
-			sessionId: "other-session",
+			sessionId: "lifecycle-owned",
 		}));
+		expect(parentFirst.some((event) => event.type === "error")).toBe(false);
+		expect(parentSend).toHaveBeenCalledTimes(1);
 
-		expect(events.some((event) => event.type === "error")).toBe(true);
-		expect(send).not.toHaveBeenCalled();
-		expect(mockedCreate).not.toHaveBeenCalled();
+		const nested = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), {
+			apiKey: "test-key",
+			sessionId: "btw-nested-id",
+		}));
+		expect(nested.some((event) => event.type === "error")).toBe(false);
+		expect(nestedSend).toHaveBeenCalledTimes(1);
+		expect(parentSend).toHaveBeenCalledTimes(1);
+		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState("__request__:btw-nested-id").status).toBe("empty");
+
+		const parentAgain = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), {
+			...parentContext,
+			messages: [...parentContext.messages, { role: "user", content: "Back on parent", timestamp: 2 }],
+		}, {
+			apiKey: "test-key",
+			sessionId: "lifecycle-owned",
+		}));
+		expect(parentAgain.some((event) => event.type === "error")).toBe(false);
+		expect(parentSend).toHaveBeenCalledTimes(2);
+		expect(mockedCreate).toHaveBeenCalledTimes(2);
+
 		const rows = await journal();
-		expect(rows.some((row) => row.action === "session_identity" && row.reason === "session_id_conflict" && typeof row.turnId === "string")).toBe(true);
+		const nestedScopeId = createHash("sha256").update("__request__:btw-nested-id").digest("hex").slice(0, 16);
+		expect(rows.some((row) => row.action === "session_identity" && row.reason === "nested_request" && row.scopeId === nestedScopeId)).toBe(true);
+		expect(rows.some((row) => row.action === "session_identity" && row.reason === "session_id_conflict")).toBe(false);
 		expect(JSON.stringify(rows)).not.toContain("test-key");
+	});
+
+	it("isolates a request-only id that no longer matches after a lifecycle scope starts", async () => {
+		const release = holdDefaultCursorAgentSend();
+		const context = makeContext();
+		const first = collectEvents(streamCursor(makeModel("gpt-5.5@1m"), context, { apiKey: "test-key", sessionId: "direct-a" }));
+		await vi.waitFor(() => expect(mockedCreate).toHaveBeenCalledTimes(1));
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/B.jsonl", "B");
+		const nestedSend = vi.fn().mockImplementation(async () => finishedRun("run-nested-direct", "agent-nested-direct"));
+		mockedCreate.mockResolvedValueOnce(asMockSdkAgent({ agentId: "agent-nested-direct", send: nestedSend }));
+		const second = collectEvents(streamCursor(makeModel("gpt-5.5@1m"), context, { apiKey: "test-key", sessionId: "direct-a" }));
+		release();
+		expect((await first).some((event) => event.type === "error")).toBe(false);
+		expect((await second).some((event) => event.type === "error")).toBe(false);
+		expect(nestedSend).toHaveBeenCalledTimes(1);
+		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState("__request__:direct-a").status).toBe("empty");
+	});
+
+	it("does not reset a nested pool when a queued same-id call aborts before acquiring the turn", async () => {
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/nested-queue.jsonl", "lifecycle-nested-queue");
+		let releaseSend!: () => void;
+		const sendGate = new Promise<void>((resolve) => {
+			releaseSend = resolve;
+		});
+		const nestedSend = vi.fn().mockImplementation(async () => {
+			await sendGate;
+			return finishedRun("run-nested-owner", "agent-nested-owner");
+		});
+		mockedCreate.mockResolvedValue(asMockSdkAgent({ agentId: "agent-nested-owner", send: nestedSend }));
+
+		const nestedScopeKey = "__request__:btw-shared-nested";
+		const owner = collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), {
+			apiKey: "test-key",
+			sessionId: "btw-shared-nested",
+		}));
+		await vi.waitFor(() => expect(nestedSend).toHaveBeenCalledTimes(1));
+		await vi.waitFor(() => expect(cursorSessionTurnQueueTestUtils.activeCount(nestedScopeKey)).toBe(1));
+
+		const controller = new AbortController();
+		const waiter = collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext([
+			{ role: "user", content: "Queued nested", timestamp: 2 },
+		]), {
+			apiKey: "test-key",
+			sessionId: "btw-shared-nested",
+			signal: controller.signal,
+		}));
+		// Same scope keeps Map size 1; activeCount tracks owner + queued waiter.
+		await vi.waitFor(() => expect(cursorSessionTurnQueueTestUtils.activeCount(nestedScopeKey)).toBe(2));
+		controller.abort();
+		expect((await waiter).some((event) => event.type === "error")).toBe(true);
+		expect(nestedSend).toHaveBeenCalledTimes(1);
+		// Critical: aborting the waiter must not clear the owner's nested pool while the owner still holds the turn.
+		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState(nestedScopeKey).status).not.toBe("empty");
+
+		releaseSend();
+		expect((await owner).some((event) => event.type === "error")).toBe(false);
+		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState(nestedScopeKey).status).toBe("empty");
 	});
 
 	it("keeps the existing session-file scope when the request omits sessionId", async () => {

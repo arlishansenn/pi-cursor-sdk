@@ -4,10 +4,12 @@
 
 ### Fixed
 
+- Treat a request `sessionId` that differs from the lifecycle pi session id as a nested Cursor run (#35): isolate on `__request__:`, leave the parent session agent alone, and reset the nested pool after the turn (same shape as compaction summarization). Fixes pi-btw `/btw` on `cursor/*`, which previously failed with `Cursor request session id does not match the pi session id`.
 - Stop calling `agent.getUsage()` once the account rejects the usage endpoint with `403 feature_unavailable` (observed 2026-10-01, stable across calls; probe evidence in the linked PR). The billed branch previously swallowed the rejection like a timeout and retried a guaranteed-403 request on every turn finalize, so `billed` usage rows never appeared for such accounts; after one rejection the extension skips the call for the rest of the process, and non-capability errors (timeouts, network) still retry as before.
 
 ### Docs
 
+- Document nested Cursor runs for `/btw` and compaction ([docs/cursor-tool-surfaces.md](docs/cursor-tool-surfaces.md); [ADR 0001](docs/adr/0001-session-identity-and-checkpoint-restore.md); README troubleshooting).
 - Document that ambient Cursor **plugins** and **file hooks** load with `PI_CURSOR_SETTING_SOURCES=all`, and add evidence that a machine-local context-mode install reaches the SDK local agent ([docs/evidence/cursor-ambient-context-mode-2026-10-01.md](docs/evidence/cursor-ambient-context-mode-2026-10-01.md); [docs/cursor-tool-surfaces.md](docs/cursor-tool-surfaces.md)).
 
 ### Changed
@@ -20,7 +22,7 @@
 - Keep a local live Cursor run alive while pi is still executing a bridged tool call (#23). The 5-minute idle release used to fire regardless, so a bridged tool that ran longer (for example `cursor_ask_question` waiting on the user, or a long bash command) cancelled the SDK run under it, reset the agent, and failed the turn with `[canceled] This operation was aborted`. The release now waits for pending bridge calls, bounded by the existing bridge call timeout (`PI_CURSOR_PI_BRIDGE_CALL_TIMEOUT_MS`).
 - Match checkpoint restore points by incremental compatibility instead of exact context equality (#6). A point records the context it sent, so a `/tree` branch that adds a new user message never matched before and restore always fell back to create/bootstrap. `npm run smoke:checkpoint-restore` now drives the production provider path instead of copying checkpoint blobs itself.
 - Surface checkpoint-restore resume rejections to the restore transaction instead of silently falling back inside agent creation (#7). A rejected copy-target resume now marks the ledger point unavailable, releases the retained store, deletes the unused copy target (agent row and checkpoint blobs, with a diagnosable `checkpoint_restore_cleanup` error row if that delete fails), and retries with an explicit force-create.
-- Stop recreating the local Cursor agent after 20 successful incremental sends. The count remains diagnostic. Provider requests now bind `options.sessionId` to the existing session scope: a conflict with the pi session id fails before send, a missing id keeps the current scope, and direct calls isolate by request id.
+- Stop recreating the local Cursor agent after 20 successful incremental sends. The count remains diagnostic. Provider requests now bind `options.sessionId` to the existing session scope: a matching id binds the parent session, a missing id keeps the current scope, a mismatched id isolates as a nested Cursor run (#35), and direct calls isolate by request id.
 - Route pi compaction summarization requests (which carry a fresh random session id by design) through an isolated request scope during the compaction window opened by `session_before_compact` and closed by `session_compact` / `session_compact_failed`, instead of failing identity validation or entering the session agent pool.
 
 ## 0.4.0 - 2026-09-26

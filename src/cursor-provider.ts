@@ -16,7 +16,7 @@ import {
 	resetCursorNativeReplayIdleDisposeMs,
 	setCursorNativeReplayIdleDisposeMs,
 } from "./cursor-provider-live-run-drain.js";
-import { disposeAllSessionCursorAgents } from "./cursor-session-agent.js";
+import { disposeAllSessionCursorAgents, resetSessionCursorAgent } from "./cursor-session-agent.js";
 import { attachCursorSdkEventDebugPiStreamTap, type CursorSdkEventDebugSink } from "./cursor-sdk-event-debug.js";
 import { installCursorSdkProcessErrorGuard } from "./cursor-sdk-process-error-guard.js";
 import { sanitizeCursorProviderError } from "./cursor-provider-errors.js";
@@ -25,7 +25,6 @@ import { CursorProviderTurnRunner } from "./cursor-provider-turn-runner.js";
 import { appendCursorAction, withCursorActionTurn } from "./cursor-actions-log.js";
 import {
 	assertCursorRequestScope,
-	CursorSessionIdentityConflictError,
 	endCursorSummarizationWindow,
 	getCursorSessionId,
 	getCursorSessionScopeGeneration,
@@ -35,7 +34,6 @@ import {
 	runWithCursorRequestSession,
 } from "./cursor-session-scope.js";
 import { runExclusiveCursorSessionTurn, __testUtils as cursorSessionTurnQueueTestUtils } from "./cursor-session-turn-queue.js";
-import { disposeSessionCursorAgent } from "./cursor-session-agent.js";
 
 function makeInitialMessage(model: Model<Api>): AssistantMessage {
 	return {
@@ -88,37 +86,31 @@ export function streamCursor(
 					endCursorSummarizationWindow();
 				}
 				const mismatchedRequest = Boolean(requestSessionId && lifecycleSessionId && requestSessionId !== lifecycleSessionId);
-				// Pi compaction summarization carries a random per-request id by design; inside the
-				// compaction window such requests run isolated instead of failing identity validation.
-				const summarizationRequest = mismatchedRequest && isCursorSummarizationWindow();
-				const sessionConflict = mismatchedRequest && !summarizationRequest;
-				let summarizationScopeKey: string | undefined;
-				const invokeScoped = () => runWithCursorRequestSession(sessionConflict ? undefined : requestSessionId, async () => {
-					if (sessionConflict) {
-						appendCursorAction({
-							action: "session_identity",
-							phase: "error",
-							reason: "session_id_conflict",
-							requestSessionId,
-							lifecycleSessionId,
-						});
-						throw new CursorSessionIdentityConflictError();
-					}
+				// Mismatched request ids are nested Cursor runs (pi compaction summarization, pi-btw
+				// `/btw` child sessions, etc.): isolate on `__request__:` and dispose after the turn.
+				const nestedRequest = mismatchedRequest;
+				const summarizationRequest = nestedRequest && isCursorSummarizationWindow();
+				// Only the call that acquires exclusive turn ownership may reset the nested pool.
+				// A queued same-id abort must not clear another in-flight nested turn's agent.
+				let nestedOwnedScopeKey: string | undefined;
+				const invokeScoped = () => runWithCursorRequestSession(requestSessionId, async () => {
 					if (requestSessionId) {
 						appendCursorAction({
 							action: "session_identity",
 							phase: "decision",
-							reason: summarizationRequest ? "summarization_request" : "bound",
+							reason: nestedRequest
+								? (summarizationRequest ? "summarization_request" : "nested_request")
+								: "bound",
 							requestSessionId,
 							...(lifecycleSessionId ? { lifecycleSessionId } : {}),
 						});
 					}
 					const acceptedScopeKey = getCursorSessionScopeKey();
-					summarizationScopeKey = acceptedScopeKey;
 					const acceptedGeneration = getCursorSessionScopeGeneration(acceptedScopeKey);
 					await runExclusiveCursorSessionTurn(
 						acceptedScopeKey,
 						() => {
+							nestedOwnedScopeKey = acceptedScopeKey;
 							assertCursorRequestScope(acceptedScopeKey, acceptedGeneration);
 							return runner.run(installCursorSdkProcessErrorGuard(), () => {
 								assertCursorRequestScope(acceptedScopeKey, acceptedGeneration);
@@ -127,14 +119,14 @@ export function streamCursor(
 						options?.signal,
 					);
 				});
-				if (summarizationRequest) {
+				if (nestedRequest) {
 					try {
 						await runWithCursorRequestIsolation(requestSessionId!, invokeScoped);
 					} finally {
-						if (summarizationScopeKey) {
-							// The summarization id never repeats; release its isolated agent and store so
-							// repeated compaction does not accumulate SDK resources.
-							await disposeSessionCursorAgent(summarizationScopeKey).catch(() => undefined);
+						if (nestedOwnedScopeKey) {
+							// Drop the one-shot nested agent/store without terminal-closing the request
+							// scope, so a reused nested id (pi-btw child session) can acquire again.
+							await resetSessionCursorAgent(nestedOwnedScopeKey, "explicit_reset").catch(() => undefined);
 						}
 					}
 				} else {
