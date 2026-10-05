@@ -9,6 +9,7 @@ import { streamCursor } from "../src/cursor-provider.js";
 import { __testUtils as cursorSessionAgentTestUtils } from "../src/cursor-session-agent.js";
 import { __testUtils as resumeTestUtils } from "../src/cursor-session-agent-resume.js";
 import { getCursorSessionFile, getCursorSessionScopeKey, __testUtils as cursorSessionScopeTestUtils } from "../src/cursor-session-scope.js";
+import { __testUtils as cursorSessionTurnQueueTestUtils } from "../src/cursor-session-turn-queue.js";
 import { buildCursorModelSelection } from "../src/model-discovery.js";
 import {
 	asMockCursorRun,
@@ -350,6 +351,47 @@ describe("streamCursor session identity", () => {
 		expect((await second).some((event) => event.type === "error")).toBe(false);
 		expect(nestedSend).toHaveBeenCalledTimes(1);
 		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState("__request__:direct-a").status).toBe("empty");
+	});
+
+	it("does not reset a nested pool when a queued same-id call aborts before acquiring the turn", async () => {
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/nested-queue.jsonl", "lifecycle-nested-queue");
+		let releaseSend!: () => void;
+		const sendGate = new Promise<void>((resolve) => {
+			releaseSend = resolve;
+		});
+		const nestedSend = vi.fn().mockImplementation(async () => {
+			await sendGate;
+			return finishedRun("run-nested-owner", "agent-nested-owner");
+		});
+		mockedCreate.mockResolvedValue(asMockSdkAgent({ agentId: "agent-nested-owner", send: nestedSend }));
+
+		const nestedScopeKey = "__request__:btw-shared-nested";
+		const owner = collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), {
+			apiKey: "test-key",
+			sessionId: "btw-shared-nested",
+		}));
+		await vi.waitFor(() => expect(nestedSend).toHaveBeenCalledTimes(1));
+		await vi.waitFor(() => expect(cursorSessionTurnQueueTestUtils.activeCount(nestedScopeKey)).toBe(1));
+
+		const controller = new AbortController();
+		const waiter = collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext([
+			{ role: "user", content: "Queued nested", timestamp: 2 },
+		]), {
+			apiKey: "test-key",
+			sessionId: "btw-shared-nested",
+			signal: controller.signal,
+		}));
+		// Same scope keeps Map size 1; activeCount tracks owner + queued waiter.
+		await vi.waitFor(() => expect(cursorSessionTurnQueueTestUtils.activeCount(nestedScopeKey)).toBe(2));
+		controller.abort();
+		expect((await waiter).some((event) => event.type === "error")).toBe(true);
+		expect(nestedSend).toHaveBeenCalledTimes(1);
+		// Critical: aborting the waiter must not clear the owner's nested pool while the owner still holds the turn.
+		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState(nestedScopeKey).status).not.toBe("empty");
+
+		releaseSend();
+		expect((await owner).some((event) => event.type === "error")).toBe(false);
+		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState(nestedScopeKey).status).toBe("empty");
 	});
 
 	it("keeps the existing session-file scope when the request omits sessionId", async () => {

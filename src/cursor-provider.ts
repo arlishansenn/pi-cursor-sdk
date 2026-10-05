@@ -90,7 +90,9 @@ export function streamCursor(
 				// `/btw` child sessions, etc.): isolate on `__request__:` and dispose after the turn.
 				const nestedRequest = mismatchedRequest;
 				const summarizationRequest = nestedRequest && isCursorSummarizationWindow();
-				let nestedScopeKey: string | undefined;
+				// Only the call that acquires exclusive turn ownership may reset the nested pool.
+				// A queued same-id abort must not clear another in-flight nested turn's agent.
+				let nestedOwnedScopeKey: string | undefined;
 				const invokeScoped = () => runWithCursorRequestSession(requestSessionId, async () => {
 					if (requestSessionId) {
 						appendCursorAction({
@@ -104,11 +106,11 @@ export function streamCursor(
 						});
 					}
 					const acceptedScopeKey = getCursorSessionScopeKey();
-					nestedScopeKey = acceptedScopeKey;
 					const acceptedGeneration = getCursorSessionScopeGeneration(acceptedScopeKey);
 					await runExclusiveCursorSessionTurn(
 						acceptedScopeKey,
 						() => {
+							nestedOwnedScopeKey = acceptedScopeKey;
 							assertCursorRequestScope(acceptedScopeKey, acceptedGeneration);
 							return runner.run(installCursorSdkProcessErrorGuard(), () => {
 								assertCursorRequestScope(acceptedScopeKey, acceptedGeneration);
@@ -121,10 +123,10 @@ export function streamCursor(
 					try {
 						await runWithCursorRequestIsolation(requestSessionId!, invokeScoped);
 					} finally {
-						if (nestedScopeKey) {
+						if (nestedOwnedScopeKey) {
 							// Drop the one-shot nested agent/store without terminal-closing the request
 							// scope, so a reused nested id (pi-btw child session) can acquire again.
-							await resetSessionCursorAgent(nestedScopeKey, "explicit_reset").catch(() => undefined);
+							await resetSessionCursorAgent(nestedOwnedScopeKey, "explicit_reset").catch(() => undefined);
 						}
 					}
 				} else {
