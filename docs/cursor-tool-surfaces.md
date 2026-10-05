@@ -87,9 +87,14 @@ Verified example (plugin MCP + user hooks, not `mcp.json`): [Cursor ambient cont
 
 Example mistake: treating `cursor-replay-…` as a tool to invoke. Replay never re-runs work.
 
+## Nested pi sessions (`/btw` and compaction)
+
+When the active model is `cursor/*`, a nested pi session that carries its own `sessionId` (pi-btw `/btw` / `/btw:ask` child sessions, and pi compaction summarization) is a **nested Cursor agent**, not the parent conversation. The provider isolates it on a `__request__:` pool, leaves the parent session agent untouched, and clears that nested pool when the turn ends. See [ADR 0001](./adr/0001-session-identity-and-checkpoint-restore.md).
+
 ## Related docs
 
 - [README — Cursor provider tool contract](../README.md#cursor-provider-tool-contract)
 - [Cursor native tool replay](./cursor-native-tool-replay.md)
 - [Cursor model UX spec](./cursor-model-ux-spec.md)
 - [Evidence — ambient context-mode on SDK local agent](./evidence/cursor-ambient-context-mode-2026-10-01.md)
+- [ADR 0001 — Session identity and checkpoint restore](./adr/0001-session-identity-and-checkpoint-restore.md)

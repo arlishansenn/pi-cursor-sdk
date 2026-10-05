@@ -115,7 +115,8 @@ export function runWithCursorRequestSession<T>(sessionId: string | undefined, op
 
 /**
  * Force request-only scope for one provider call even when a lifecycle session exists.
- * Used for pi compaction summarization, whose stream options carry a distinct id by design.
+ * Used for nested Cursor runs whose stream options carry a distinct id by design
+ * (pi compaction summarization, pi-btw `/btw` child sessions, and similar).
  */
 export function runWithCursorRequestIsolation<T>(sessionId: string, operation: () => T): T {
 	return requestIsolation.run(true, () => requestSession.run(sessionId, operation));
