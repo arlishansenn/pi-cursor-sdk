@@ -271,7 +271,7 @@ describe("streamCursor session identity", () => {
 
 		expect(after.some((event) => event.type === "error")).toBe(false);
 		expect(sendAfter).toHaveBeenCalledTimes(1);
-		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState("__request__:summary-routing-id-2").status).toBe("empty");
+		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState("__request__:summary-routing-id-2").status).toBe("ready");
 		const rows = await journal();
 		expect(rows.some((row) => row.action === "session_identity" && row.reason === "nested_request")).toBe(true);
 		expect(rows.some((row) => row.action === "session_identity" && row.reason === "session_id_conflict")).toBe(false);
@@ -291,7 +291,7 @@ describe("streamCursor session identity", () => {
 		expect(cursorSessionScopeTestUtils.isSummarizationWindow()).toBe(false);
 	});
 
-	it("isolates a nested request id from the parent lifecycle agent and disposes the nested pool after the turn", async () => {
+	it("isolates a nested request id from the parent lifecycle agent and reuses that nested agent on the next turn", async () => {
 		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/owned.jsonl", "lifecycle-owned");
 		const parentSend = vi.fn().mockImplementation(async () => finishedRun("run-parent", "agent-parent"));
 		const nestedSend = vi.fn().mockImplementation(async () => {
@@ -310,18 +310,30 @@ describe("streamCursor session identity", () => {
 		expect(parentFirst.some((event) => event.type === "error")).toBe(false);
 		expect(parentSend).toHaveBeenCalledTimes(1);
 
-		const nested = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), makeContext(), {
+		const nestedContext = makeContext();
+		const nested = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), nestedContext, {
 			apiKey: "test-key",
 			sessionId: "btw-nested-id",
 		}));
 		expect(nested.some((event) => event.type === "error")).toBe(false);
 		expect(nestedSend).toHaveBeenCalledTimes(1);
 		expect(parentSend).toHaveBeenCalledTimes(1);
-		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState("__request__:btw-nested-id").status).toBe("empty");
+		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState("__request__:btw-nested-id").status).toBe("ready");
+
+		const nestedAgain = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), {
+			...nestedContext,
+			messages: [...nestedContext.messages, { role: "user", content: "Second nested turn", timestamp: 2 }],
+		}, {
+			apiKey: "test-key",
+			sessionId: "btw-nested-id",
+		}));
+		expect(nestedAgain.some((event) => event.type === "error")).toBe(false);
+		expect(nestedSend).toHaveBeenCalledTimes(2);
+		expect(mockedCreate).toHaveBeenCalledTimes(2);
 
 		const parentAgain = await collectEvents(streamCursor(makeModel("gpt-5.5@1m"), {
 			...parentContext,
-			messages: [...parentContext.messages, { role: "user", content: "Back on parent", timestamp: 2 }],
+			messages: [...parentContext.messages, { role: "user", content: "Back on parent", timestamp: 3 }],
 		}, {
 			apiKey: "test-key",
 			sessionId: "lifecycle-owned",
@@ -350,7 +362,7 @@ describe("streamCursor session identity", () => {
 		expect((await first).some((event) => event.type === "error")).toBe(false);
 		expect((await second).some((event) => event.type === "error")).toBe(false);
 		expect(nestedSend).toHaveBeenCalledTimes(1);
-		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState("__request__:direct-a").status).toBe("empty");
+		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState("__request__:direct-a").status).toBe("ready");
 	});
 
 	it("does not reset a nested pool when a queued same-id call aborts before acquiring the turn", async () => {
@@ -391,7 +403,7 @@ describe("streamCursor session identity", () => {
 
 		releaseSend();
 		expect((await owner).some((event) => event.type === "error")).toBe(false);
-		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState(nestedScopeKey).status).toBe("empty");
+		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState(nestedScopeKey).status).toBe("ready");
 	});
 
 	it("keeps the existing session-file scope when the request omits sessionId", async () => {
