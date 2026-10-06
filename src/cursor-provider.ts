@@ -86,12 +86,13 @@ export function streamCursor(
 					endCursorSummarizationWindow();
 				}
 				const mismatchedRequest = Boolean(requestSessionId && lifecycleSessionId && requestSessionId !== lifecycleSessionId);
-				// Mismatched request ids are nested Cursor runs (pi compaction summarization, pi-btw
-				// `/btw` child sessions, etc.): isolate on `__request__:` and dispose after the turn.
+				// Mismatched request ids are nested Cursor runs: isolate on `__request__:`.
+				// Compaction summarization ids are one-shot — reset after the turn.
+				// Reused nested ids (pi-btw `/btw` child sessions) keep the pooled agent.
 				const nestedRequest = mismatchedRequest;
 				const summarizationRequest = nestedRequest && isCursorSummarizationWindow();
-				// Only the call that acquires exclusive turn ownership may reset the nested pool.
-				// A queued same-id abort must not clear another in-flight nested turn's agent.
+				// Only the call that acquires exclusive turn ownership may reset a one-shot
+				// summarization pool. A queued same-id abort must not clear an in-flight agent.
 				let nestedOwnedScopeKey: string | undefined;
 				const invokeScoped = () => runWithCursorRequestSession(requestSessionId, async () => {
 					if (requestSessionId) {
@@ -123,9 +124,7 @@ export function streamCursor(
 					try {
 						await runWithCursorRequestIsolation(requestSessionId!, invokeScoped);
 					} finally {
-						if (nestedOwnedScopeKey) {
-							// Drop the one-shot nested agent/store without terminal-closing the request
-							// scope, so a reused nested id (pi-btw child session) can acquire again.
+						if (summarizationRequest && nestedOwnedScopeKey) {
 							await resetSessionCursorAgent(nestedOwnedScopeKey, "explicit_reset").catch(() => undefined);
 						}
 					}

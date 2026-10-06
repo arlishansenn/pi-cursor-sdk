@@ -89,7 +89,7 @@ Example mistake: treating `cursor-replay-…` as a tool to invoke. Replay never 
 
 ## Nested pi sessions (`/btw` and compaction)
 
-When the active model is `cursor/*`, a nested pi session that carries its own `sessionId` (pi-btw `/btw` / `/btw:ask` child sessions, and pi compaction summarization) is a **nested Cursor agent**, not the parent conversation. The provider isolates it on a `__request__:` pool, leaves the parent session agent untouched, and clears that nested pool when the turn ends. See [ADR 0001](./adr/0001-session-identity-and-checkpoint-restore.md).
+When the active model is `cursor/*`, a nested pi session that carries its own `sessionId` (pi-btw `/btw` / `/btw:ask` child sessions, and pi compaction summarization) is a **nested Cursor agent**, not the parent conversation. The provider isolates it on a `__request__:` pool and leaves the parent session agent untouched. Compaction summarization ids are one-shot and the nested pool is cleared when that turn ends. A reused nested id (the same `/btw` child session) keeps the nested Cursor agent across turns so later BTW prompts skip a second SDK `Agent.create`. See [ADR 0001](./adr/0001-session-identity-and-checkpoint-restore.md).
 
 ## Related docs
 

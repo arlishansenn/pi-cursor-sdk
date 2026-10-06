@@ -629,7 +629,7 @@ Many runs never expose web activity as replayable SDK tool completions or local 
 
 ### `/btw` on a `cursor/*` model
 
-`/btw` (pi-btw) opens a nested pi session with its own session id. On `cursor/*` that nested id is a **nested Cursor agent**: it does not steal or replace the parent session's Cursor agent, and it is cleared after the nested turn. Prefer pi's interactive TUI for the BTW overlay; outside TUI pass the question inline (`/btw …`). See [Cursor tool surfaces — Nested pi sessions](docs/cursor-tool-surfaces.md#nested-pi-sessions-btw-and-compaction) and [ADR 0001](docs/adr/0001-session-identity-and-checkpoint-restore.md).
+`/btw` (pi-btw) opens a nested pi session with its own session id. On `cursor/*` that nested id is a **nested Cursor agent**: it does not steal or replace the parent session's Cursor agent. The nested agent is reused for later `/btw` turns in that child session (the first Cursor SDK create can still be slow). Prefer pi's interactive TUI for the BTW overlay; outside TUI pass the question inline (`/btw …`). Pi `web_search` is not in BTW's default tools; opt in with `~/.pi/agent/btw.json` (`extensions` listing `npm:pi-web-access`) per pi-btw. See [Cursor tool surfaces — Nested pi sessions](docs/cursor-tool-surfaces.md#nested-pi-sessions-btw-and-compaction) and [ADR 0001](docs/adr/0001-session-identity-and-checkpoint-restore.md).
 
 ### I disabled MCP in pi but Cursor still has extra tools
 

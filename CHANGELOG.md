@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Keep the nested `__request__:` Cursor agent across reused nested session ids (pi-btw `/btw` child sessions). Only one-shot compaction summarization still resets that pool after the turn. The first `/btw` on `cursor/*` still pays SDK `Agent.create`; later turns in the same BTW session reuse the agent.
 - Treat a request `sessionId` that differs from the lifecycle pi session id as a nested Cursor run (#35): isolate on `__request__:`, leave the parent session agent alone, and reset the nested pool after the turn (same shape as compaction summarization). Fixes pi-btw `/btw` on `cursor/*`, which previously failed with `Cursor request session id does not match the pi session id`.
 - Stop calling `agent.getUsage()` once the account rejects the usage endpoint with `403 feature_unavailable` (observed 2026-10-01, stable across calls; probe evidence in the linked PR). The billed branch previously swallowed the rejection like a timeout and retried a guaranteed-403 request on every turn finalize, so `billed` usage rows never appeared for such accounts; after one rejection the extension skips the call for the rest of the process, and non-capability errors (timeouts, network) still retry as before.
 
