@@ -20,7 +20,7 @@ import {
 	resetCursorProviderTestState,
 } from "./helpers/cursor-provider-harness.js";
 import { streamCursor } from "../src/cursor-provider.js";
-import { __testUtils as cursorSessionAgentTestUtils, invalidateSessionAgent, resetSessionCursorAgent } from "../src/cursor-session-agent.js";
+import { __testUtils as cursorSessionAgentTestUtils, invalidateSessionAgent, resetSessionCursorAgent, scheduleSessionCursorAgentWarmup } from "../src/cursor-session-agent.js";
 import { __testUtils as resumeTestUtils } from "../src/cursor-session-agent-resume.js";
 import { computeCursorContextFingerprint } from "../src/context.js";
 import { buildCursorModelSelection } from "../src/model-discovery.js";
@@ -200,6 +200,33 @@ describe("streamCursor checkpoint restore on a real SQLite store", () => {
 		expect(restoredSends[0]).not.toContain("Remember ALPHA");
 		const rows = await journal();
 		expect(rows.filter((row) => row.action === "send_plan").at(-1)).toMatchObject({ mode: "incremental" });
+	});
+
+	it("restores identically when a warmup was scheduled on a history-bearing scope", async () => {
+		vi.stubEnv("CURSOR_API_KEY", "test-key");
+		await runAlphaThenBeta();
+		invalidateSessionAgent();
+		await resetSessionCursorAgent();
+		const restoredSends: string[] = [];
+		const seen = resumeRecordingHead(restoredSends, "restored-done");
+
+		// The scheduled create-ahead must keep this pool physically empty so the
+		// empty-pool restore gate still sees the pool as empty.
+		scheduleSessionCursorAgentWarmup("gpt-5.5@1m");
+		await vi.waitFor(async () => {
+			const rows = await journal();
+			expect(rows.some((row) => row.action === "agent_warm" && row.reason === "skip_checkpoint_history")).toBe(true);
+		});
+		expect(cursorSessionAgentTestUtils.getSessionCursorAgentPoolState(SCOPE_KEY).status).toBe("empty");
+
+		expect(await send(BACK_TO_ALPHA)).toContain("restored-done");
+
+		expect(mockedCreate).toHaveBeenCalledTimes(1);
+		expect(seen).toEqual({ agentId: "agent-source", head: sourceHead(0) });
+		expect(restoredSends[0]).not.toContain("Remember ALPHA");
+		const rows = await journal();
+		expect(rows.filter((row) => row.action === "send_plan").at(-1)).toMatchObject({ mode: "incremental" });
+		expect(rows.some((row) => row.action === "agent_warm" && row.reason === "warm_hit_ready")).toBe(false);
 	});
 
 	it("never resumes a rewound agent from another branch's persisted handle; restores that branch's head instead", async () => {

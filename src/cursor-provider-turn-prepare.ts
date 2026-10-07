@@ -2,7 +2,6 @@ import { appendCursorAction, getCursorActionTurnId, traceCursorAction, traceCurs
 import type { Context, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { getCursorConversationMessages, resolveCursorPiContext } from "./cursor-pi-context.js";
 import type { AgentModeOption, ModelSelection, SDKAgent } from "@cursor/sdk";
-import { configureCursorSdkHttp1 } from "./cursor-http1.js";
 import { installCursorMcpToolTimeoutOverride } from "./cursor-mcp-timeout-override.js";
 import { ensureCursorRipgrepPath } from "./cursor-ripgrep-path.js";
 import { installCursorSdkOutputFilter, suppressCursorSdkOutput } from "./cursor-sdk-output-filter.js";
@@ -269,10 +268,6 @@ async function prepareCursorLocalProviderTurn(
 		};
 		const sdk = await traceCursorAction({ action: "sdk_load", runtime: "local", model: model.id }, () => loadCursorSdk());
 		const { Agent } = sdk;
-		const useHttp1ForAgent = configureCursorSdkHttp1(
-			sdk,
-			resolvedConfig.local.useHttp1ForAgent,
-		);
 
 		installCursorMcpToolTimeoutOverride();
 		restoreCursorSdkOutputFilter = installCursorSdkOutputFilter();
@@ -288,7 +283,9 @@ async function prepareCursorLocalProviderTurn(
 			settingSources,
 			localSafety,
 			localResume: resolvedConfig.local.resume.value,
-			useHttp1ForAgent,
+			// The resolved setting travels in params; the single create path configures the
+			// SDK global under the HTTP/1.1 lock right before it captures the transport.
+			useHttp1ForAgent: resolvedConfig.local.useHttp1ForAgent,
 			debugRecorder: sdkEventDebug,
 			onBridgeToolRequest: (request: CursorPiBridgeToolRequest) => {
 				if (liveRunForBridgeQueue && !liveRunForBridgeQueue.disposed) {
@@ -302,7 +299,6 @@ async function prepareCursorLocalProviderTurn(
 		};
 		const restoredLease = await acquireEmptyPoolCursorAgentFromCheckpoint(sessionAgentAcquireParams, getCursorSessionScopeKey(), context);
 		let sessionAgentLease = restoredLease ?? await acquireSessionCursorAgent(sessionAgentAcquireParams);
-		const resumedFromCheckpoint = restoredLease?.resumed === true;
 		sessionAgentScopeKey = sessionAgentLease.scopeKey;
 		throwIfAborted();
 
@@ -328,7 +324,7 @@ async function prepareCursorLocalProviderTurn(
 			};
 		};
 		let sendPlan = planCursorSessionSend(sessionAgentLease.sendState, context);
-		if (sessionAgentLease.created && sessionAgentLease.resumed && !resumedFromCheckpoint && sendPlan.mode === "incremental") {
+		if (sessionAgentLease.requiresProcessResumeBootstrap && sendPlan.mode === "incremental") {
 			sendPlan = { mode: "bootstrap", resetAgent: false, reason: "process_resume" };
 		}
 		appendCursorAction({ action: "send_plan", phase: "decision", scopeKey: sessionAgentScopeKey, agentId: sessionAgentLease.agent.agentId, instanceId: sessionAgentLease.instanceId, model: model.id, runtime: "local", ...sendPlan, incrementalSendCount: sessionAgentLease.sendState.incrementalSendCount });

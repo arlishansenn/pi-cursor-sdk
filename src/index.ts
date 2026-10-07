@@ -17,6 +17,9 @@ import { registerCursorAgentsContextDedup } from "./cursor-agents-context-regist
 import { registerCursorOverflowNormalization } from "./cursor-provider-overflow.js";
 import { registerCursorSdkSessionProcessErrorGuard } from "./cursor-sdk-process-error-guard.js";
 import { prepareCursorSessionForCompaction } from "./cursor-session-compaction-prep.js";
+import { registerCursorModelLifecycle } from "./cursor-model-lifecycle.js";
+import { scheduleSessionCursorAgentWarmup } from "./cursor-session-agent.js";
+import { isCursorModel } from "./cursor-model.js";
 
 type CursorExtensionApi =
 	& Pick<ExtensionAPI, "registerProvider" | "registerCommand" | "on">
@@ -65,6 +68,19 @@ export default async function (pi: CursorExtensionApi) {
 	registerCursorQuestionTool(pi);
 	registerCursorSkillTool(pi);
 	registerCursorPiToolBridge(pi);
+	// Same-key create-ahead: session_start/model_select asynchronously publish one pool
+	// entry under the key the next prompt is expected to acquire. Registered after scope,
+	// resume, checkpoint, and invalidation handlers so warm admission observes their state.
+	registerCursorModelLifecycle(pi, {
+		sessionStart: (_event, ctx) => {
+			const model = ctx.model;
+			if (model && isCursorModel(model)) scheduleSessionCursorAgentWarmup(model.id);
+		},
+		modelSelect: (_event, ctx) => {
+			const model = ctx.model;
+			if (model && isCursorModel(model)) scheduleSessionCursorAgentWarmup(model.id);
+		},
+	});
 	registerCursorAgentsContextDedup(pi);
 	registerCursorOverflowNormalization(pi);
 	let fallbackIssue: CursorModelFallbackIssue | undefined;
