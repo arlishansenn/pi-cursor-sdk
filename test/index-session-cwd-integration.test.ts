@@ -112,8 +112,7 @@ describe("extension session cwd integration", () => {
 				expect.objectContaining({
 					local: expect.objectContaining({
 						cwd: sessionDir,
-						settingSources: ["all"],
-						store: expect.any(Object),
+									store: expect.any(Object),
 					}),
 				}),
 			);

@@ -70,7 +70,6 @@ describe("streamCursor prompt and model config", () => {
 
 		expect(mockedCreate.mock.calls[0][0].local).toMatchObject({
 			cwd: process.cwd(),
-			settingSources: ["all"],
 			store: expect.any(Object),
 		});
 	});

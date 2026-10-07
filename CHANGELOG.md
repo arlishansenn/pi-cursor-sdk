@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- **Default `PI_CURSOR_SETTING_SOURCES` is now none (fork behavior change).** Unset `PI_CURSOR_SETTING_SOURCES` now omits `local.settingSources` on `Agent.create`, so ambient Cursor MCP servers, plugins, rules, and file hooks do not load by default. Measured motivation: with ambient `all`, the provider path to first text was ~13.4s vs ~9.1s with `none` on the same machine (`debug:provider-coldstart`, 3-sample medians ~23.1s vs ~13.5s under `composer-2.5`), and the delta sits in send→first text (SDK connects each configured MCP server before the first reply), not in `Agent.create`. `PI_CURSOR_SETTING_SOURCES=all` restores the previous behavior; pi-side `pi__*` bridge tools are unaffected. Pi `AGENTS.md`/`CLAUDE.md` de-duplication now also does not trigger by default (Cursor loads no rules), so pi context is injected in full.
+
 ### Fixed
 
 - Keep the nested `__request__:` Cursor agent across reused nested session ids (pi-btw `/btw` child sessions). Only one-shot compaction summarization still resets that pool after the turn. The first `/btw` on `cursor/*` still pays SDK `Agent.create`; later turns in the same BTW session reuse the agent.
