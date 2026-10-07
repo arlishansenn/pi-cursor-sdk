@@ -45,6 +45,7 @@
     "scripts/validate-smoke-jsonl.mjs",
     "scripts/probe-mcp-coldstart.mjs",
     "scripts/probe-provider-coldstart.mjs",
+    "scripts/probe-provider-coldstart.d.mts",
     "scripts/debug-sdk-events.mjs",
     "scripts/debug-sdk-events.d.mts",
     "scripts/debug-provider-events.mjs",

@@ -76,7 +76,19 @@ export function readArgvApiKey(argv) {
 }
 
 export function apiKeySecretsFromProcess(argv = process.argv.slice(2), env = process.env) {
-	return [defaultApiKeyFromEnv(env), readArgvApiKey(argv)];
+	// parseArgv keeps the last repeated --api-key, but every provided value can be
+	// echoed back by a rejected argument, so all of them must be scrubbed.
+	const argvKeys = [];
+	for (let index = 0; index < argv.length; index++) {
+		const arg = argv[index];
+		if (arg === "--api-key") {
+			const value = argv[index + 1];
+			if (typeof value === "string") argvKeys.push(value.trim());
+		} else if (arg.startsWith("--api-key=")) {
+			argvKeys.push(arg.slice("--api-key=".length).trim());
+		}
+	}
+	return [defaultApiKeyFromEnv(env), ...argvKeys];
 }
 
 export function requireApiKey(args, env, fail) {

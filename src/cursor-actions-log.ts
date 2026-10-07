@@ -44,7 +44,15 @@ const actionTurn = new AsyncLocalStorage<ActionTurnStore>();
 export function withCursorActionTurn<T>(operation: () => T): T {
 	const current = actionTurn.getStore();
 	if (current) return operation();
-	return actionTurn.run({ turnId: randomUUID(), startedAt: performance.now(), firstTextRecorded: false }, operation);
+	let store: ActionTurnStore;
+	try {
+		store = { turnId: randomUUID(), startedAt: performance.now(), firstTextRecorded: false };
+	} catch {
+		// Observation must never break the provider: run without turn correlation.
+		writeFailures++;
+		return operation();
+	}
+	return actionTurn.run(store, operation);
 }
 
 /** Record turn-start → first non-empty assistant text once. Never stores text content. */
@@ -117,20 +125,45 @@ export function traceCursorSyncAction<T>(
 	}
 }
 
+type CursorActionSpan<T> = {
+	readonly success: (result: T) => void;
+	readonly error: () => void;
+};
+
 function startCursorAction<T>(
 	fields: ActionFields,
 	resultFields?: (result: T) => Pick<ActionFields, "agentId" | "runId" | "promptChars" | "imageCount">,
-) {
-	const snapshot = { ...fields, scopeKey: fields.scopeKey ?? getCursorSessionScopeKey(), operationId: randomUUID() };
-	const start = performance.now();
-	appendCursorAction({ ...snapshot, phase: "start" });
+): CursorActionSpan<T> {
+	// Span initialization and finish recording are best-effort: a failure here must
+	// not prevent the wrapped operation from running or change its result or error.
+	let snapshot: ActionFields & { scopeKey: string; operationId: string };
+	let start: number;
+	try {
+		snapshot = { ...fields, scopeKey: fields.scopeKey ?? getCursorSessionScopeKey(), operationId: randomUUID() };
+		start = performance.now();
+		appendCursorAction({ ...snapshot, phase: "start" });
+	} catch {
+		writeFailures++;
+		const noopSuccess = (_result: T): void => undefined;
+		return { success: noopSuccess, error: () => undefined };
+	}
+	const recorded = snapshot;
+	const beganAt = start;
 	return {
 		success(result: T) {
 			try {
-				appendCursorAction({ ...snapshot, ...resultFields?.(result), phase: "success", durationMs: performance.now() - start });
-			} catch {}
+				appendCursorAction({ ...recorded, ...resultFields?.(result), phase: "success", durationMs: performance.now() - beganAt });
+			} catch {
+				writeFailures++;
+			}
 		},
-		error() { appendCursorAction({ ...snapshot, phase: "error", durationMs: performance.now() - start }); },
+		error() {
+			try {
+				appendCursorAction({ ...recorded, phase: "error", durationMs: performance.now() - beganAt });
+			} catch {
+				writeFailures++;
+			}
+		},
 	};
 }
 

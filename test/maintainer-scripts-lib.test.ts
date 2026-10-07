@@ -203,6 +203,17 @@ describe("maintainer scripts shared lib", () => {
 		]);
 	});
 
+	it("collects every provided --api-key value, not only the first", () => {
+		// parseArgv keeps the last repeated flag, so any earlier value is unused but
+		// can still be echoed back by a rejected argument; all of them must scrub.
+		expect(
+			apiKeySecretsFromProcess(
+				["--api-key", "first-key", "--api-key=second-key", "--api-key", "third-key"],
+				{},
+			),
+		).toEqual([undefined, "first-key", "second-key", "third-key"]);
+	});
+
 	it("parses common probe flags and enforces api key requirements", () => {
 		const fail = vi.fn((message: string) => {
 			throw new Error(message);
