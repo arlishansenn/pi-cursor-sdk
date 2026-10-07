@@ -664,7 +664,7 @@ If you enabled ambient sources but do not need user-level MCP in pi:
 PI_CURSOR_SETTING_SOURCES=project,plugins,team pi --model cursor/grok-4.6
 ```
 
-Or fix/disable the slow MCP server in Cursor settings. Maintainer timing probe: `npm run debug:mcp-coldstart`.
+Or fix/disable the slow MCP server in Cursor settings. Maintainer timing probes: `npm run debug:mcp-coldstart` (direct SDK) and `npm run debug:provider-coldstart` (provider path via `streamCursor`).
 
 ### A Cursor MCP tool times out
 

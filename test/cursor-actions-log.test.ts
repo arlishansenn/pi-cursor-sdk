@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { appendCursorAction, traceCursorAction, withCursorActionTurn, __testUtils } from "../src/cursor-actions-log.js";
+import { appendCursorAction, noteCursorActionFirstText, traceCursorAction, withCursorActionTurn, __testUtils } from "../src/cursor-actions-log.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs/promises")>();
@@ -132,5 +132,20 @@ describe("async action journal", () => {
 		appendCursorAction({ action: "send_plan", phase: "decision" });
 		await __testUtils.flush();
 		await expect(readFile(path)).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
+	it("records first_text once per turn without content", async () => {
+		const path = await destination();
+		await withCursorActionTurn(async () => {
+			noteCursorActionFirstText();
+			noteCursorActionFirstText();
+		});
+		await __testUtils.flush();
+		const rows = (await readFile(path, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+		expect(rows).toHaveLength(1);
+		expect(rows[0].action).toBe("first_text");
+		expect(rows[0].phase).toBe("success");
+		expect(rows[0].durationMs).toEqual(expect.any(Number));
+		expect(JSON.stringify(rows[0])).not.toMatch(/pong|delta|prompt/i);
 	});
 });

@@ -1,5 +1,6 @@
 import type { Api, Model, AssistantMessage, AssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { InteractionUpdate } from "@cursor/sdk";
+import { noteCursorActionFirstText } from "./cursor-actions-log.js";
 import { CURSOR_TEXT_MESSAGE_SEPARATOR } from "./cursor-partial-content-emitter.js";
 import type { CursorLiveRun } from "./cursor-live-run-coordinator.js";
 import { cursorLiveRuns } from "./cursor-provider-live-run-drain.js";
@@ -200,7 +201,10 @@ export class CursorSdkTurnCoordinator {
 			cursorLiveRuns.recordSdkTurnEnded(this.liveRun, sdkTurnUsage);
 		}
 		if (update.type === "text-delta") {
-			if (update.text) this.hasPendingTextMessage = true;
+			if (update.text) {
+				this.hasPendingTextMessage = true;
+				noteCursorActionFirstText();
+			}
 			this.textDeltas.push(update.text);
 			if (this.liveRun) {
 				cursorLiveRuns.queueEvent(this.liveRun, { type: "text-delta", text: update.text });

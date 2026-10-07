@@ -504,10 +504,13 @@ async function createSessionAgentEntry(
 	try {
 		const registeredBridge = getRegisteredCursorPiToolBridge();
 		if (registeredBridge) {
-			bridgeRun = await registeredBridge.createRun({
-				onToolRequest: params.onBridgeToolRequest,
-				debugRecorder: params.debugRecorder,
-			});
+			bridgeRun = await traceCursorAction(
+				{ action: "bridge_setup", scopeKey, instanceId, runtime: "local" },
+				() => registeredBridge.createRun({
+					onToolRequest: params.onBridgeToolRequest,
+					debugRecorder: params.debugRecorder,
+				}),
+			);
 			if (!bridgeRun.enabled || !bridgeRun.mcpServers) {
 				await bridgeRun.dispose();
 				bridgeRun = undefined;

@@ -267,7 +267,7 @@ async function prepareCursorLocalProviderTurn(
 			autoReview: resolvedConfig.local.autoReview.value,
 			sandboxEnabled: resolvedConfig.local.sandboxEnabled.value,
 		};
-		const sdk = await loadCursorSdk();
+		const sdk = await traceCursorAction({ action: "sdk_load", runtime: "local", model: model.id }, () => loadCursorSdk());
 		const { Agent } = sdk;
 		const useHttp1ForAgent = configureCursorSdkHttp1(
 			sdk,
