@@ -32,3 +32,4 @@ dogfood-output/
 
 # Crabbox local lease metadata (do not commit)
 .crabbox/
+package-lock.json
