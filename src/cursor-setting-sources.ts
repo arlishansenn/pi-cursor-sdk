@@ -7,7 +7,7 @@ import {
 } from "../shared/cursor-setting-sources.mjs";
 
 export const CURSOR_SETTING_SOURCES_ENV = CURSOR_SETTING_SOURCES_ENV_JS;
-export const DEFAULT_CURSOR_SETTING_SOURCES = DEFAULT_CURSOR_SETTING_SOURCES_JS as readonly SettingSource[];
+export const DEFAULT_CURSOR_SETTING_SOURCES = DEFAULT_CURSOR_SETTING_SOURCES_JS as readonly SettingSource[] | undefined;
 
 export function resolveCursorSettingSources(raw?: string): SettingSource[] | undefined {
 	return resolveCursorSettingSourcesJs(raw) as SettingSource[] | undefined;

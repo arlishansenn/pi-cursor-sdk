@@ -372,7 +372,7 @@ function notifyInvalidCursorModeIfCursorActive(ctx: Pick<ExtensionContext, "hasU
 function formatEffectiveCursorSettingSourcesLabel(raw: string | undefined = process.env[CURSOR_SETTING_SOURCES_ENV]): string {
 	const effective = resolveCursorSettingSources(raw);
 	const effectiveLabel = effective === undefined ? "none" : effective.join(",");
-	const rawLabel = raw?.trim() ? raw.trim() : `(unset → ${DEFAULT_CURSOR_SETTING_SOURCES.join(",")})`;
+	const rawLabel = raw?.trim() ? raw.trim() : `(unset → ${DEFAULT_CURSOR_SETTING_SOURCES?.join(",") ?? "none"})`;
 	return `${rawLabel} (effective: ${effectiveLabel})`;
 }
 

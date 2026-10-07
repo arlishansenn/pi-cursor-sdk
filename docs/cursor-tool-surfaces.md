@@ -67,14 +67,15 @@ Disabling or removing an MCP server **only in pi** does not remove Cursor ambien
 | --- | --- |
 | `pi --no-tools` | Disables pi built-in/extension/custom tools and therefore removes pi bridge exposure; Cursor SDK host tools still remain callable. |
 | `pi --tools ...` / `pi --exclude-tools ...` | Narrows pi's active tool registry and therefore the pi bridge snapshot; Cursor SDK host tools and configured Cursor MCP are unchanged. |
-| `PI_CURSOR_SETTING_SOURCES=all` (default) | Loads user/project Cursor MCP, **plugins**, rules, and **file hooks** (`~/.cursor/hooks.json`, project `.cursor/hooks.json`) |
+| Unset (default, this fork) | Omits `settingSources`: no ambient Cursor MCP, plugins, rules, or file hooks | 
+| `PI_CURSOR_SETTING_SOURCES=all` | Loads user/project Cursor MCP, **plugins**, rules, and **file hooks** (`~/.cursor/hooks.json`, project `.cursor/hooks.json`) |
 | `PI_CURSOR_SETTING_SOURCES=none` | Disables ambient Cursor setting sources for local agents (no ambient MCP, plugins, or file hooks) |
 | `PI_CURSOR_SETTING_SOURCES=project,plugins` | Narrows which layers load |
 | Empty or edited `~/.cursor/mcp.json` | Changes which **user-file** MCP servers Cursor connects to (does not remove plugin-declared MCP) |
 | Plugin under `~/.cursor/plugins/local/<name>/` | Declares plugin MCP / hooks via `.cursor-plugin/plugin.json`; SDK loads MCP when `plugins` (or `all`) is enabled |
 | `~/.cursor/hooks.json` | User-level file hooks the SDK executes when `user` (or `all`) is enabled |
 
-To reproduce a **minimal** surface (pi-cursor-sdk + Cursor host only), use extension-only install, empty user MCP config, and `PI_CURSOR_SETTING_SOURCES=none` when you do not need Cursor rules/MCP/plugins/hooks from disk.
+To reproduce a **minimal** surface (pi-cursor-sdk + Cursor host only), keep `PI_CURSOR_SETTING_SOURCES` unset (the default) with an extension-only install.
 
 Verified example (plugin MCP + user hooks, not `mcp.json`): [Cursor ambient context-mode evidence (2026-10-01)](./evidence/cursor-ambient-context-mode-2026-10-01.md).
 
