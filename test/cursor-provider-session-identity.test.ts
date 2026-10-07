@@ -436,7 +436,6 @@ describe("streamCursor session identity", () => {
 			agentMode: "agent",
 			cwd: process.cwd(),
 			modelSelection,
-			settingSources: ["all"],
 			localSafety: { autoReview: false, sandboxEnabled: false },
 			localResume: true,
 		});
@@ -490,7 +489,6 @@ describe("streamCursor session identity", () => {
 			agentMode: "agent",
 			cwd: process.cwd(),
 			modelSelection,
-			settingSources: ["all"],
 			localSafety: { autoReview: false, sandboxEnabled: false },
 			localResume: true,
 		});

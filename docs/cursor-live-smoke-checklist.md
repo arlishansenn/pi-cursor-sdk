@@ -36,7 +36,7 @@ The repo also ships partial automation for the prerequisite/basic/default-settin
 npm run smoke:live
 ```
 
-`npm run smoke:live` resolves `pi`, `node`, `npm`, `rg`, and `tmux` once in the parent shell, then runs all `pi` shims with the resolved Node directory first on `PATH`. It clears inherited Cursor SDK event-debug env for every child pi run. Isolated helper cases force `PI_CURSOR_SETTING_SOURCES=none`; the `default-settings` helper case explicitly unsets `PI_CURSOR_SETTING_SOURCES` so it exercises the default ambient setting-source path.
+`npm run smoke:live` resolves `pi`, `node`, `npm`, `rg`, and `tmux` once in the parent shell, then runs all `pi` shims with the resolved Node directory first on `PATH`. It clears inherited Cursor SDK event-debug env for every child pi run. Isolated helper cases force `PI_CURSOR_SETTING_SOURCES=none`; the `default-settings` helper case explicitly unsets `PI_CURSOR_SETTING_SOURCES` so it exercises the default (unset) setting-source path, which resolves to no ambient sources in this fork.
 
 The canonical visual runner for section 4 is checked in separately:
 

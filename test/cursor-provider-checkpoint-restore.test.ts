@@ -272,7 +272,6 @@ describe("streamCursor checkpoint restore on a real SQLite store", () => {
 			agentMode: "agent",
 			cwd: process.cwd(),
 			modelSelection: buildCursorModelSelection("gpt-5.5@1m", "off", false),
-			settingSources: ["all"],
 			localSafety: { autoReview: false, sandboxEnabled: false },
 			localResume: true,
 		});

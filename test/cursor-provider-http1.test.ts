@@ -57,7 +57,6 @@ describe("Cursor provider HTTP/1.1 transport", () => {
 		expect(mockedConfigureCursor).not.toHaveBeenCalled();
 		expect(mockedCreate.mock.calls[0][0].local).toMatchObject({
 			cwd: process.cwd(),
-			settingSources: ["all"],
 			store: expect.any(Object),
 		});
 	});
