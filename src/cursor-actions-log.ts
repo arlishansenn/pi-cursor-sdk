@@ -9,7 +9,8 @@ import { getCursorSessionScopeKey } from "./cursor-session-scope.js";
 // Metadata only: never pass SDK options, errors, prompt text, or raw pool keys.
 type Action = "agent_create" | "agent_resume" | "agent_resume_policy" | "agent_lease" |
 	"agent_invalidate" | "agent_reset" | "agent_dispose" | "send_state_commit" |
-	"send_plan" | "prompt_build" | "agent_send" | "session_identity" | "checkpoint_restore" | "checkpoint_restore_cleanup";
+	"send_plan" | "prompt_build" | "agent_send" | "session_identity" | "checkpoint_restore" | "checkpoint_restore_cleanup" |
+	"sdk_load" | "bridge_setup" | "store_open" | "first_text";
 interface ActionFields {
 	action: Action;
 	scopeKey?: string;
@@ -37,12 +38,29 @@ interface ActionFields {
 	lifecycleSessionId?: string;
 }
 type ActionRecord = ActionFields & { phase: "start" | "success" | "error" | "decision"; durationMs?: number };
-const actionTurn = new AsyncLocalStorage<{ turnId: string }>();
+type ActionTurnStore = { turnId: string; startedAt: number; firstTextRecorded: boolean };
+const actionTurn = new AsyncLocalStorage<ActionTurnStore>();
 
 export function withCursorActionTurn<T>(operation: () => T): T {
 	const current = actionTurn.getStore();
 	if (current) return operation();
-	return actionTurn.run({ turnId: randomUUID() }, operation);
+	return actionTurn.run({ turnId: randomUUID(), startedAt: performance.now(), firstTextRecorded: false }, operation);
+}
+
+/** Record turn-start → first non-empty assistant text once. Never stores text content. */
+export function noteCursorActionFirstText(): void {
+	try {
+		const store = actionTurn.getStore();
+		if (!store || store.firstTextRecorded) return;
+		store.firstTextRecorded = true;
+		appendCursorAction({
+			action: "first_text",
+			phase: "success",
+			durationMs: performance.now() - store.startedAt,
+		});
+	} catch {
+		writeFailures++;
+	}
 }
 
 /** Turn id of the action-log turn this code runs in, for correlating other logs (e.g. usage). */

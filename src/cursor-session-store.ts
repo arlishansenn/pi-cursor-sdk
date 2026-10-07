@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, toNamespacedPath } from "node:path";
 import type { LocalAgentStore } from "@cursor/sdk";
+import { traceCursorAction } from "./cursor-actions-log.js";
 import { loadCursorSdk } from "./cursor-sdk-runtime.js";
 
 export interface CursorSessionStoreIdentity {
@@ -88,10 +89,12 @@ async function openOwnedCursorSessionStore(
 	const openedIdentity = Object.freeze({ ...identity });
 	let store: LocalAgentStore & { dispose(): Promise<void> };
 	try {
-		store = await (await getSdkOperations()).openSqliteStore({
-			workspaceRef: cwd,
-			stateRoot: toNamespacedPath(openedIdentity.stateRoot),
-		});
+		store = await traceCursorAction({ action: "store_open", runtime: "local" }, async () =>
+			(await getSdkOperations()).openSqliteStore({
+				workspaceRef: cwd,
+				stateRoot: toNamespacedPath(openedIdentity.stateRoot),
+			}),
+		);
 	} catch (error) {
 		if (removalRoot) await rm(removalRoot, { recursive: true, force: true }).catch(() => undefined);
 		throw error;
