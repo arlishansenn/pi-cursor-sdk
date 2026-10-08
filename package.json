@@ -128,6 +128,7 @@
     "prepare": "node ./scripts/prepare.mjs",
     "postinstall": "node ./patch-sdk.mjs",
     "test:patch-sdk": "node --test patch-sdk.test.mjs",
+    "verify:offline": "npm test && npm run test:patch-sdk && npm run typecheck && npm run build && npm pack --dry-run --quiet",
     "typecheck": "npm run typecheck:src && npm run typecheck:tests && npm run typecheck:replay-compile",
     "typecheck:src": "tsc --noEmit",
     "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
@@ -16,6 +16,11 @@ const packageJson = require("../package.json") as {
 	bundledDependencies?: string[];
 	overrides?: Record<string, string>;
 };
+if (!existsSync(join(process.cwd(), "package-lock.json"))) {
+	// The lockfile is intentionally untracked (3e2997f); a fresh checkout only has
+	// it after a local `npm install` regenerates it.
+	throw new Error("package-lock.json is missing; run `npm install` to regenerate it locally, then rerun");
+}
 const packageLock = require("../package-lock.json") as {
 	version: string;
 	packages: Record<string, { version?: string; resolved?: string; dependencies?: Record<string, string>; bundleDependencies?: boolean | string[] }>;

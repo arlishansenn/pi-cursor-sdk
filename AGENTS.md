@@ -152,6 +152,7 @@ There is no lint or format script in `package.json` at this time.
 - TypeScript 7 builds and checks package types. `@typescript/typescript6` is dev-only for the AST architecture test because TypeScript 7 has no stable compiler API.
 - TypeScript is ESM with `moduleResolution: "NodeNext"`; keep `.js` extensions on local relative imports.
 - Keep strict TypeScript types. Avoid `any` except in tests or when narrowing untyped external SDK data.
+- Restore discipline: read `git diff <file>` before any `git checkout -- <file>`; on a tree carrying uncommitted (subagent) work, preserve it by forward-fixing.
 - Vitest 5 defaults `clearMocks` to `true`; do not depend on mock state leaking between tests.
 - Keep provider runtime code side-effect-light. Do not write secrets, and do not let cache or discovery failures break response streaming unless the run cannot proceed safely.
 - Add or update tests for behavior changes in `src/`. Prefer focused unit tests over live Cursor calls.

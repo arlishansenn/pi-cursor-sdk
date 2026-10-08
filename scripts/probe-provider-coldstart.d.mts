@@ -85,6 +85,8 @@ export declare function compareWarmupPromptEquivalence(options: {
 	warmDir: string;
 	coldResult: ProbeScenarioSummary;
 	warmResult: ProbeScenarioSummary;
+	/** Overrides the temp root the work-dir normalizer matches under; tests inject Windows-style roots. */
+	tmpRoot?: string;
 }): Promise<ProbeWarmupPromptEquivalenceReport>;
 
 /** Sync a CLI-provided Cursor key into the child process env so warmup admission resolves the same credentials. */

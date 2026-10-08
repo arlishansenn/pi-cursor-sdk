@@ -77,6 +77,46 @@ describe("warm-arm helper boundaries", () => {
 });
 
 describe("compareWarmupPromptEquivalence", () => {
+	it("normalizes windows-style backslash paths, including JSON-escaped payload text", async () => {
+		const winRoot = "C:\\Users\\runner\\AppData\\Local\\Temp";
+		const winWorkDir = (label: string, suffix: string) => `${winRoot}\\provider-coldstart-${label}-${suffix}`;
+		const root = mkdtempSync(join(tmpdir(), "probe-equivalence-win-"));
+		const coldDir = join(root, `${COLD_LABEL}.debug-events`);
+		const warmDir = join(root, `${WARM_LABEL}.debug-events`);
+		writeArmDebugEvents(
+			coldDir,
+			`context ${winWorkDir(COLD_LABEL, "Wx12")}\\AGENTS.md session provider-coldstart-${COLD_LABEL}\nReply with exactly: pong`,
+			{
+				cwd: winWorkDir(COLD_LABEL, "Wx12"),
+				session: `provider-coldstart-${COLD_LABEL}`,
+				messages: [{ role: "user", content: "Reply with exactly: pong" }],
+			},
+		);
+		writeArmDebugEvents(
+			warmDir,
+			`context ${winWorkDir(WARM_LABEL, "Qz77")}\\AGENTS.md session provider-coldstart-${WARM_LABEL}\nReply with exactly: pong`,
+			{
+				cwd: winWorkDir(WARM_LABEL, "Qz77"),
+				session: `provider-coldstart-${WARM_LABEL}`,
+				messages: [{ role: "user", content: "Reply with exactly: pong" }],
+			},
+		);
+
+		const report = await compareWarmupPromptEquivalence({
+			coldDir,
+			warmDir,
+			coldResult: armResult(COLD_LABEL, false),
+			warmResult: armResult(WARM_LABEL, true),
+			tmpRoot: winRoot,
+		});
+
+		expect(report.compared).toBe(true);
+		expect(report.promptTextEqual).toBe(true);
+		// The payload is compared as serialized JSON, where backslashes double; the
+		// separator class must still swallow them (the windows-latest CI failure).
+		expect(report.sendPayloadEqual).toBe(true);
+	});
+
 	it("reports equality when arms differ only by work dir and scenario label", async () => {
 		const root = mkdtempSync(join(tmpdir(), "probe-equivalence-"));
 		const coldDir = join(root, `${COLD_LABEL}.debug-events`);
