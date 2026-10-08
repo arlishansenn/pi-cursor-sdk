@@ -6,5 +6,10 @@ export default defineConfig({
 		setupFiles: ["./test/setup-env.ts"],
 		include: ["test/**/*.test.ts"],
 		exclude: ["test/**/*.compile.test.ts"],
+		// Always externalize the Pi packages: an operator-level install of a newer
+		// @earendil-works/pi-coding-agent under $HOME can otherwise get inlined by a
+		// fork worker under load, mixing theme code with the pinned 0.87.1 checkout
+		// and failing initTheme on okhsl vars that do not exist here (#46).
+		server: { deps: { external: [/@earendil-works\//] } },
 	},
 });
