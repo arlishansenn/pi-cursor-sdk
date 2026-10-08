@@ -1,10 +1,10 @@
 // Seams (agreed for #558):
 // 1) pin 1.0.32 + exactly one unpatched construction → writes maxMode from context=1m or context=500k
 // 2) version !== 1.0.32 → throws
-// 3) hit count !== 1 (including already-patched = 0) → throws
+// 3) rerun on an already-patched tree is a successful no-op; a legacy 1m-only patch is upgraded; a shape matching neither → throws (#41)
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -53,12 +53,45 @@ test('fails when SDK version is wrong', () => {
 	assert.match(r.stderr + r.stdout, /1\.0\.32/);
 });
 
-test('fails when rerun on an already-patched tree', () => {
+test('rerun on an already-patched tree is a successful no-op', () => {
 	const root = setup('1.0.32', FIXTURE);
 	assert.equal(run(root).status, 0);
+	const first = readFileSync(join(root, 'node_modules/@cursor/sdk/dist/esm/34.js'), 'utf8');
+	const r = run(root);
+	assert.equal(r.status, 0, r.stderr + r.stdout);
+	assert.match(r.stdout, /already patched/);
+	assert.equal(readFileSync(join(root, 'node_modules/@cursor/sdk/dist/esm/34.js'), 'utf8'), first);
+});
+
+test('upgrades a legacy context=1m-only patch to the current 1m-or-500k shape', async () => {
+	const legacy = 'export const build=t=>({modelId:t.model.id,maxMode:(t.model.params??[]).some(p=>p.id==="context"&&p.value==="1m"),parameters:t.model.params});';
+	const root = setup('1.0.32', legacy);
+	const r = run(root);
+	assert.equal(r.status, 0, r.stderr + r.stdout);
+	assert.match(r.stdout, /repatched legacy/);
+	const { build } = await import(pathToFileURL(join(root, 'node_modules/@cursor/sdk/dist/esm/34.js')).href);
+	assert.equal(build({ model: { id: 'm', params: [{ id: 'context', value: '500k' }] } }).maxMode, true);
+});
+
+test('fails when the tree matches neither the unpatched nor the patched shape', () => {
+	const drifted = 'export const build=t=>({modelId:t.model.id,maxMode:custom(t),parameters:t.model.params});';
+	const root = setup('1.0.32', drifted);
 	const r = run(root);
 	assert.notEqual(r.status, 0);
-	assert.match(r.stderr + r.stdout, /Expected one unpatched/);
+	assert.match(r.stderr + r.stdout, /unpatched/);
+});
+
+test('fails without writing when mixed or duplicated shapes are present', () => {
+	const current = (v) => `export const a${v}=t=>({modelId:t.model.id,maxMode:(t.model.params??[]).some(p=>p.id==="context"&&(p.value==="1m"||p.value==="500k")),parameters:t.model.params});`;
+	const legacy = (v) => `export const b${v}=t=>({modelId:t.model.id,maxMode:(t.model.params??[]).some(p=>p.id==="context"&&p.value==="1m"),parameters:t.model.params});`;
+	const unpatched = (v) => `export const c${v}=t=>({modelId:t.model.id,parameters:t.model.params});`;
+	for (const content of [`${current(1)}${legacy(1)}`, `${current(1)}${current(2)}`, `${legacy(1)}${legacy(2)}`, `${unpatched(1)}${unpatched(2)}${current(1)}`]) {
+		const root = setup('1.0.32', content);
+		const before = readFileSync(join(root, 'node_modules/@cursor/sdk/dist/esm/34.js'), 'utf8');
+		const r = run(root);
+		assert.notEqual(r.status, 0, content);
+		assert.equal(readFileSync(join(root, 'node_modules/@cursor/sdk/dist/esm/34.js'), 'utf8'), before);
+	}
 });
 
 // npm hoists @cursor/sdk to the project root when the package is installed from a
