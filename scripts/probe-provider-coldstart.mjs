@@ -326,8 +326,15 @@ function probeArmSummary(result) {
  */
 function buildProbeArmTextNormalizer(labels, tmpRoot = tmpdir()) {
 	const validLabels = labels.filter((label) => typeof label === "string" && label.length > 0);
-	const workDirPatterns = validLabels.map((label) =>
-		new RegExp(`${escapeRegExp(join(tmpRoot, `provider-coldstart-${label}-`))}[A-Za-z0-9]+`, "g"));
+	// Path-segment pattern: separators match one or more of / or \, so POSIX paths,
+	// Windows paths, and JSON-escaped Windows paths (doubled backslashes inside a
+	// serialized payload) all normalize to the same WORK token.
+	const workDirPatterns = validLabels.map((label) => {
+		// Split on BOTH separators regardless of host platform, so an injected
+		// Windows-style root normalizes identically on a POSIX runner.
+		const segments = `${tmpRoot.replace(/[/\\]+$/, "")}/provider-coldstart-${label}-`.split(/[/\\]/).filter(Boolean);
+		return new RegExp(`${segments.map(escapeRegExp).join("[/\\\\]+")}[A-Za-z0-9]+`, "g");
+	});
 	const labelPatterns = validLabels.map((label) => new RegExp(escapeRegExp(label), "g"));
 	return (text) => {
 		let normalized = text;
@@ -346,11 +353,11 @@ function formatEquivalenceFlag(value) {
  * prompt equivalence. Writes <parent-of-coldDir>/equivalence.json, logs a one
  * line summary, and returns the report. Missing evidence is reported, never thrown.
  */
-export async function compareWarmupPromptEquivalence({ coldDir, warmDir, coldResult, warmResult }) {
+export async function compareWarmupPromptEquivalence({ coldDir, warmDir, coldResult, warmResult, tmpRoot }) {
 	const { ARTIFACTS } = await import("../dist/cursor-sdk-event-debug-constants.js");
 	const coldArm = probeArmSummary(coldResult);
 	const warmArm = probeArmSummary(warmResult);
-	const normalize = buildProbeArmTextNormalizer([coldArm.label, warmArm.label]);
+	const normalize = buildProbeArmTextNormalizer([coldArm.label, warmArm.label], tmpRoot);
 	const coldEvidence = readProbeArmEvidence("cold", coldDir, ARTIFACTS);
 	const warmEvidence = readProbeArmEvidence("warm", warmDir, ARTIFACTS);
 	const missing = [...coldEvidence.missing, ...warmEvidence.missing];
