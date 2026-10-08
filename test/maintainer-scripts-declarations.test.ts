@@ -116,6 +116,11 @@ const DECLARATION_TYPE_ONLY_EXPORTS: Record<string, readonly string[]> = {
 		"CursorSdkEventTimingSnapshot",
 		"CursorSdkEventJsonlSink",
 	],
+	"scripts/probe-provider-coldstart.d.mts": [
+		"ProbeScenarioSummary",
+		"ProbeWarmupEquivalenceArm",
+		"ProbeWarmupPromptEquivalenceReport",
+	],
 	"scripts/lib/cloud-smoke-artifacts.d.mts": [
 		"CloudSmokeLifecycleRecord",
 		"CloudSmokeMetadataRecord",

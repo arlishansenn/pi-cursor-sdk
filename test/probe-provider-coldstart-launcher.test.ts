@@ -51,6 +51,8 @@ describe("probe-provider-coldstart launcher CLI surface", () => {
 		expect(result.stderr.trim()).toBe("");
 		expect(result.stdout).toContain("Usage:");
 		expect(result.stdout).toContain("provider-no-setting-sources");
+		expect(result.stdout).toContain("provider-warmup-first-prompt");
+		expect(result.stdout).toContain("equivalence.json");
 		expect(result.stdout).toContain("Sampled boundary");
 		expect(result.stdout.startsWith("Measure Cursor provider-path")).toBe(true);
 		// Help must not rebuild dist/ (ensureBuilt) or import the SDK; both take
