@@ -5,7 +5,7 @@ import { __testUtils as actionLog } from "../src/cursor-actions-log.js";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { computeCursorContextFingerprint, shouldBootstrapCursorContext } from "../src/context.js";
 import { createEventHarness, createExtensionTestContext, makeContext } from "./helpers/pi-harness.js";
-import { __testUtils as cursorSessionScopeTestUtils, registerCursorSessionScope } from "../src/cursor-session-scope.js";
+import { __testUtils as cursorSessionScopeTestUtils, getCursorSessionScopeKey, registerCursorSessionScope } from "../src/cursor-session-scope.js";
 import { __testUtils as resumeTestUtils } from "../src/cursor-session-agent-resume.js";
 import {
 	acquireSessionCursorAgent,
@@ -13,6 +13,7 @@ import {
 } from "../src/cursor-session-agent.js";
 import { registerCursorSessionAgentLifecycle } from "../src/cursor-session-agent-lifecycle.js";
 import { installCursorSessionStoreMock } from "./helpers/cursor-session-store.js";
+import { __testUtils as cursorHttp1TestUtils } from "../src/cursor-http1.js";
 import { buildCursorSessionStateRoot } from "../src/cursor-session-store.js";
 
 describe("cursor-session-agent", () => {
@@ -20,6 +21,9 @@ describe("cursor-session-agent", () => {
 		installCursorSessionStoreMock();
 		cursorSessionScopeTestUtils.reset();
 		resumeTestUtils.reset();
+		// Also clears the HTTP/1.1 lock tail so a gated create in one test cannot pin
+		// every later test's serialized create.
+		cursorHttp1TestUtils.reset();
 		await sessionAgentTestUtils.disposeAllSessionCursorAgents();
 		vi.clearAllMocks();
 	});
@@ -316,6 +320,62 @@ describe("cursor-session-agent", () => {
 		expect(createAgent).toHaveBeenCalledTimes(2);
 	});
 
+	it("creates the replacement entry in the original scope when the ambient scope switches during invalidation disposal", async () => {
+		const scopeA = "/tmp/sessions/retry-scope-a.jsonl";
+		const scopeB = "/tmp/sessions/retry-scope-b.jsonl";
+		let finishDispose: (() => void) | undefined;
+		const firstDispose = vi.fn(() => new Promise<void>((resolve) => {
+			finishDispose = resolve;
+		}));
+		const ambientAtCreate: string[] = [];
+		const createAgent = vi.fn().mockImplementation(async () => {
+			const call = createAgent.mock.calls.length;
+			ambientAtCreate.push(getCursorSessionScopeKey());
+			return {
+				agentId: `agent-scope-retry-${call}`,
+				[Symbol.asyncDispose]: call === 1 ? firstDispose : vi.fn().mockResolvedValue(undefined),
+			};
+		});
+		cursorSessionScopeTestUtils.set("/tmp/project-a", scopeA);
+		const params = {
+			apiKey: "test-key",
+			agentMode: "agent" as const,
+			cwd: "/tmp/project-a",
+			modelSelection: { id: "composer-2.5" },
+			createAgent,
+		};
+
+		const first = await acquireSessionCursorAgent(params);
+		let finishRun: (() => void) | undefined;
+		const runCompletion = new Promise<void>((resolve) => {
+			finishRun = resolve;
+		});
+		first.trackRunCompletion(runCompletion);
+
+		const second = acquireSessionCursorAgent(params);
+		await Promise.resolve();
+		// The busy-wait escape routes the acquire through invalidation disposal; the
+		// deferred disposal below is where the ambient scope switches sessions.
+		sessionAgentTestUtils.invalidateSessionAgent(scopeA);
+		finishRun?.();
+		await vi.waitFor(() => expect(firstDispose).toHaveBeenCalledTimes(1));
+		cursorSessionScopeTestUtils.set("/tmp/project-b", scopeB);
+
+		finishDispose?.();
+		const lease = await second;
+
+		expect(lease.scopeKey).toBe(scopeA);
+		expect(lease.agent.agentId).toBe("agent-scope-retry-2");
+		expect(createAgent).toHaveBeenCalledTimes(2);
+		// The retry created while the ambient scope already pointed at B, yet the entry
+		// published under the acquiring scope A with A's cwd.
+		expect(ambientAtCreate).toEqual([scopeA, scopeB]);
+		expect(createAgent.mock.calls[1][0].local?.cwd).toBe("/tmp/project-a");
+		expect(sessionAgentTestUtils.getSessionCursorAgentPoolState(scopeA).status).toBe("ready");
+		expect(sessionAgentTestUtils.getSessionCursorAgentPoolState(scopeB).status).toBe("empty");
+		expect(sessionAgentTestUtils.sessionAgentsByScope.has(scopeB)).toBe(false);
+	});
+
 	it("rejects a blocked busy acquire when terminal disposal happens before sdk completion", async () => {
 		const mockDispose = vi.fn().mockResolvedValue(undefined);
 		const createAgent = vi.fn().mockResolvedValue({
@@ -507,7 +567,8 @@ describe("cursor-session-agent", () => {
 		const firstAcquirePromise = acquireSessionCursorAgent({ ...baseParams, apiKey: "key-a" });
 		await vi.waitFor(() => expect(createAgent).toHaveBeenCalledTimes(1));
 		const secondAcquirePromise = acquireSessionCursorAgent({ ...baseParams, apiKey: "key-b" });
-		await vi.waitFor(() => expect(createAgent).toHaveBeenCalledTimes(2));
+		// Creates serialize on the HTTP/1.1 lock, so the replacement create cannot start
+		// until the superseded in-flight create settles; release it before awaiting.
 		resolveLateCreate({
 			agentId: "agent-late",
 			[Symbol.asyncDispose]: mockDisposeLate,

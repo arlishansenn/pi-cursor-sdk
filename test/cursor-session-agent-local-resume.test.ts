@@ -399,6 +399,157 @@ describe("cursor-session-agent local resume", () => {
 		expect(createAgent).toHaveBeenCalledTimes(1);
 	});
 
+	it("carries the process-resume obligation to deferred concurrent joiners", async () => {
+		installCursorSessionStoreMock();
+		const scopeKey = "/tmp/sessions/test.jsonl";
+		const stateRoot = buildCursorSessionStateRoot("/tmp/cursor-sdk-state", scopeKey, true);
+		const sendState = {
+			bootstrapped: true,
+			contextFingerprint: computeCursorContextFingerprint(makeContext()),
+			incrementalSendCount: 3,
+		};
+		const resumedAgent = { agentId: "agent-recorded", [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined) };
+		let resolveResume: (agent: unknown) => void = () => {};
+		const resumeAgent = vi.fn().mockImplementation(
+			() => new Promise((resolve) => {
+				resolveResume = resolve;
+			}),
+		);
+		const createAgent = vi.fn().mockResolvedValue({ agentId: "agent-new", [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined) });
+		cursorSessionScopeTestUtils.set("/tmp/project", scopeKey);
+		const params = {
+			apiKey: "test-key",
+			agentMode: "agent" as const,
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			localResume: true,
+			createAgent,
+			resumeAgent,
+		};
+		const poolKey = sessionAgentTestUtils.buildSessionAgentPoolKey(scopeKey, params);
+		resumeTestUtils.set({
+			scopeKey,
+			sessionFile: scopeKey,
+			cwd: "/tmp/project",
+			repoRoot: undefined,
+			branchPathHash: resumeTestUtils.EMPTY_BRANCH_HASH,
+			compactionGeneration: 0,
+			activeHandle: {
+				version: 2,
+				runtime: "local",
+				agentId: "agent-recorded",
+				scopeKey,
+				sessionFile: scopeKey,
+				cwd: "/tmp/project",
+				poolKey,
+				branchPathHash: resumeTestUtils.EMPTY_BRANCH_HASH,
+				compactionGeneration: 0,
+				sendState,
+				createdAt: "2026-07-07T00:00:00.000Z",
+				storeIdentity: { version: 1, stateRoot },
+			},
+		});
+
+		const creatorPromise = acquireSessionCursorAgent(params);
+		await vi.waitFor(() => expect(resumeAgent).toHaveBeenCalledTimes(1));
+		const joinerPromise = acquireSessionCursorAgent(params);
+		resolveResume(resumedAgent);
+		const [creator, joiner] = await Promise.all([creatorPromise, joinerPromise]);
+
+		expect(creator.created).toBe(true);
+		expect(joiner.created).toBe(false);
+		expect(creator.agent).toBe(joiner.agent);
+		expect(resumeAgent).toHaveBeenCalledTimes(1);
+		// The obligation must follow the entry, not the creator's `created` flag: a
+		// concurrent joiner must not skip the conservative process_resume bootstrap.
+		expect(creator.requiresProcessResumeBootstrap).toBe(true);
+		expect(joiner.requiresProcessResumeBootstrap).toBe(true);
+	});
+
+	it("does not owe process_resume after an explicit checkpoint resume", async () => {
+		installCursorSessionStoreMock();
+		const scopeKey = "/tmp/sessions/test.jsonl";
+		const resumedAgent = { agentId: "agent-checkpoint", [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined) };
+		const resumeAgent = vi.fn().mockResolvedValue(resumedAgent);
+		const createAgent = vi.fn().mockResolvedValue({ agentId: "agent-new", [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined) });
+		cursorSessionScopeTestUtils.set("/tmp/project", scopeKey);
+
+		const lease = await acquireSessionCursorAgent({
+			apiKey: "test-key",
+			agentMode: "agent" as const,
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			localResume: true,
+			resumeAgentId: "agent-checkpoint",
+			resumeStoreIdentity: { version: 1, stateRoot: "/tmp/cursor-sdk-state" },
+			createAgent,
+			resumeAgent,
+		});
+
+		expect(lease.resumed).toBe(true);
+		expect(lease.requiresProcessResumeBootstrap).toBe(false);
+		expect(resumeAgent).toHaveBeenCalledTimes(1);
+	});
+
+	it("clears the process-resume obligation only via the owning entry's bootstrap commit", async () => {
+		installCursorSessionStoreMock();
+		const scopeKey = "/tmp/sessions/test.jsonl";
+		const stateRoot = buildCursorSessionStateRoot("/tmp/cursor-sdk-state", scopeKey, true);
+		const resumedAgent = { agentId: "agent-recorded", [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined) };
+		const resumeAgent = vi.fn().mockResolvedValue(resumedAgent);
+		const createAgent = vi.fn().mockResolvedValue({ agentId: "agent-new", [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined) });
+		cursorSessionScopeTestUtils.set("/tmp/project", scopeKey);
+		const params = {
+			apiKey: "test-key",
+			agentMode: "agent" as const,
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			localResume: true,
+			createAgent,
+			resumeAgent,
+		};
+		const poolKey = sessionAgentTestUtils.buildSessionAgentPoolKey(scopeKey, params);
+		resumeTestUtils.set({
+			scopeKey,
+			sessionFile: scopeKey,
+			cwd: "/tmp/project",
+			branchPathHash: resumeTestUtils.EMPTY_BRANCH_HASH,
+			compactionGeneration: 0,
+			activeHandle: {
+				version: 2,
+				runtime: "local",
+				agentId: "agent-recorded",
+				scopeKey,
+				sessionFile: scopeKey,
+				cwd: "/tmp/project",
+				poolKey,
+				branchPathHash: resumeTestUtils.EMPTY_BRANCH_HASH,
+				compactionGeneration: 0,
+				sendState: { bootstrapped: true, contextFingerprint: computeCursorContextFingerprint(makeContext()), incrementalSendCount: 0 },
+				createdAt: "2026-07-07T00:00:00.000Z",
+				storeIdentity: { version: 1, stateRoot },
+			},
+		});
+		const context = makeContext([{ role: "user", content: "Hello", timestamp: 1 }]);
+
+		const first = await acquireSessionCursorAgent(params);
+		expect(first.requiresProcessResumeBootstrap).toBe(true);
+		// An incremental (or failed-send) commit keeps the obligation alive.
+		await first.commitSend(context, false);
+		expect((await acquireSessionCursorAgent(params)).requiresProcessResumeBootstrap).toBe(true);
+
+		// A replacement entry owes its own bootstrap; a stale commit from the old
+		// instance must not discharge the current entry's obligation.
+		sessionAgentTestUtils.invalidateSessionAgent(scopeKey);
+		const second = await acquireSessionCursorAgent(params);
+		expect(second.requiresProcessResumeBootstrap).toBe(true);
+		await first.commitSend(context, true);
+		expect((await acquireSessionCursorAgent(params)).requiresProcessResumeBootstrap).toBe(true);
+
+		await second.commitSend(context, true);
+		expect((await acquireSessionCursorAgent(params)).requiresProcessResumeBootstrap).toBe(false);
+	});
+
 	it("schedules a local resume handle only after a successful send commit", async () => {
 		const appendEntry = vi.fn();
 		const createAgent = vi.fn().mockResolvedValue({ agentId: "agent-1", [Symbol.asyncDispose]: vi.fn().mockResolvedValue(undefined) });

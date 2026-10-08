@@ -8,14 +8,38 @@ import {
 	type CursorPiToolBridgeRun,
 } from "./cursor-pi-tool-bridge.js";
 import { computeCursorContextFingerprint } from "./context.js";
-import { isCursorCheckpointAgentRewound, recordCursorCheckpointPoint } from "./cursor-checkpoint-ledger.js";
-import { getCursorSessionFile, getCursorSessionScopeGeneration, getCursorSessionScopeKey } from "./cursor-session-scope.js";
+import {
+	hasCursorCheckpointHistory,
+	isCursorCheckpointAgentRewound,
+	recordCursorCheckpointPoint,
+} from "./cursor-checkpoint-ledger.js";
+import {
+	getCursorSessionCwd,
+	getCursorSessionFile,
+	getCursorSessionProjectTrusted,
+	getCursorSessionScopeGeneration,
+	getCursorSessionScopeKey,
+} from "./cursor-session-scope.js";
 import {
 	getMatchingCursorSessionAgentResumeHandle,
 	persistCursorSessionAgentResumeHandle,
 } from "./cursor-session-agent-resume.js";
 import type { CursorSdkEventDebugRecorder } from "./cursor-sdk-event-debug.js";
 import { loadCursorSdk, type CursorSdkModule } from "./cursor-sdk-runtime.js";
+import {
+	configureCursorSdkHttp1,
+	resolveCursorSdkHttp1ForAgent,
+	runWithCursorSdkHttp1Lock,
+} from "./cursor-http1.js";
+import { installCursorMcpToolTimeoutOverride } from "./cursor-mcp-timeout-override.js";
+import { ensureCursorRipgrepPath } from "./cursor-ripgrep-path.js";
+import { installCursorSdkOutputFilter, suppressCursorSdkOutput } from "./cursor-sdk-output-filter.js";
+import { getEffectiveCursorSettingSources } from "./cursor-setting-sources.js";
+import { getCursorProviderAgentModeOrThrow, getEffectiveFastForModelId } from "./cursor-state.js";
+import { resolveEffectiveCursorConfig } from "./cursor-runtime-state.js";
+import type { CursorResolvedSdkConfig, CursorResolvedSetting } from "./cursor-config.js";
+import { buildCursorModelSelection } from "./model-discovery.js";
+import { resolveCursorApiKey } from "./cursor-api-key.js";
 import {
 	cursorSessionStoreIdentitiesEqual,
 	openCursorSessionStore,
@@ -43,16 +67,24 @@ export interface SessionCursorAgentLease {
 	sendState: SessionCursorAgentSendState;
 	created: boolean;
 	resumed?: boolean;
+	/** Conversation obligation carried by the entry: this agent resumed a persisted local handle and has not bootstrapped the current pi transcript yet. */
+	readonly requiresProcessResumeBootstrap: boolean;
 	resumeNotice?: string;
 	commitSend(context: Context, bootstrapped: boolean): Promise<void>;
 	trackRunCompletion(completion: Promise<unknown>): void;
 }
+
+/** Which request inserted the pool entry; provenance for journaling only, never pool identity. */
+type SessionCursorAgentPoolEntryOrigin = "demand" | "warm";
 
 interface SessionCursorAgentPoolEntryBase {
 	poolKey: string;
 	instanceId: number;
 	scopeKey: string;
 	sendState: SessionCursorAgentSendState;
+	origin: SessionCursorAgentPoolEntryOrigin;
+	/** Set by the first real demand lease of a warm-origin entry; deduplicates warm-hit journaling. */
+	firstTurnObserved: boolean;
 }
 
 interface SessionCursorAgentCreatingEntry extends SessionCursorAgentPoolEntryBase {
@@ -68,6 +100,8 @@ interface SessionCursorAgentReadyEntry extends SessionCursorAgentPoolEntryBase {
 	sessionStore: OpenCursorSessionStore;
 	resumeEnabled: boolean;
 	resumed: boolean;
+	/** True until this entry's persisted-handle resume has bootstrapped the current pi transcript. */
+	pendingProcessResumeBootstrap: boolean;
 	resumeNotice?: string;
 }
 
@@ -78,6 +112,7 @@ interface SessionCursorAgentBusyEntry extends SessionCursorAgentPoolEntryBase {
 	sessionStore: OpenCursorSessionStore;
 	resumeEnabled: boolean;
 	resumed: boolean;
+	pendingProcessResumeBootstrap: boolean;
 	resumeNotice?: string;
 	completionSettled: Promise<void>;
 	pendingCompletion: Promise<void>;
@@ -131,7 +166,8 @@ interface SessionCursorAgentCreateParams {
 	modelSelection: ModelSelection;
 	settingSources?: SettingSource[];
 	localSafety?: CursorLocalSafetyOptions;
-	useHttp1ForAgent?: boolean;
+	/** Single source of truth for the HTTP/1.1 pool dimension; the pool key and the create-path configure both resolve it. */
+	useHttp1ForAgent?: CursorResolvedSetting<boolean>;
 	onBridgeToolRequest?: (request: CursorPiBridgeToolRequest) => void;
 	debugRecorder?: CursorSdkEventDebugRecorder;
 	localResume?: boolean;
@@ -219,15 +255,18 @@ function buildBridgePoolKeySuffix(): string {
 }
 
 function buildSessionAgentPoolKey(scopeKey: string, params: SessionCursorAgentCreateParams): string {
+	const useHttp1ForAgent = params.useHttp1ForAgent === undefined
+		? undefined
+		: resolveCursorSdkHttp1ForAgent(params.useHttp1ForAgent);
 	return [
 		scopeKey,
 		params.cwd,
 		buildModelPoolKey(params.modelSelection),
 		buildSettingSourcesPoolKey(params.settingSources),
 		buildLocalSafetyPoolKey(params.localSafety),
-		params.useHttp1ForAgent === undefined
+		useHttp1ForAgent === undefined
 			? "http1:default"
-			: params.useHttp1ForAgent
+			: useHttp1ForAgent
 				? "http1:on"
 				: "http1:off",
 		buildApiKeyPoolKeyFingerprint(params.apiKey),
@@ -337,6 +376,9 @@ function commitSessionAgentSendForLease(
 	entry.sendState.contextFingerprint = computeCursorContextFingerprint(context);
 	if (bootstrapped) {
 		entry.sendState.incrementalSendCount = 0;
+		// The persisted-handle resume obligation is discharged only by this entry's
+		// own bootstrap commit; failed sends and incremental commits keep it alive.
+		entry.pendingProcessResumeBootstrap = false;
 	} else {
 		entry.sendState.incrementalSendCount += 1;
 	}
@@ -423,7 +465,17 @@ function leaseFromEntry(
 	scopeKey: string,
 	params: SessionCursorAgentCreateParams,
 	created: boolean,
+	warmHit?: "creating" | "ready",
 ): SessionCursorAgentLease {
+	if (entry.origin === "warm" && !entry.firstTurnObserved) {
+		// Warm-hit is recorded by the first real demand lease joining the warmed entry,
+		// never by the warmup itself, so one joined entry journals exactly one hit.
+		entry.firstTurnObserved = true;
+		appendCursorAction({
+			action: "agent_warm", phase: "success", scopeKey, instanceId: entry.instanceId,
+			agentId: entry.agent.agentId, reason: warmHit === "creating" ? "warm_hit_creating" : "warm_hit_ready",
+		});
+	}
 	appendCursorAction({ action: "agent_lease", phase: "success", scopeKey, instanceId: entry.instanceId, agentId: entry.agent.agentId, created, resumed: entry.resumed });
 	entry.resumeEnabled = params.localResume === true;
 	bindBridgeToolRequest(entry, params.onBridgeToolRequest);
@@ -441,6 +493,7 @@ function leaseFromEntry(
 		sendState: entry.sendState,
 		created,
 		resumed: entry.resumed,
+		requiresProcessResumeBootstrap: entry.pendingProcessResumeBootstrap,
 		...(resumeNotice ? { resumeNotice } : {}),
 		commitSend: async (context, bootstrapped) => {
 			commitSessionAgentSendForLease(scopeKey, entry.poolKey, entry.instanceId, context, bootstrapped);
@@ -468,6 +521,7 @@ async function tryLeaseReadyEntry(
 	params: SessionCursorAgentCreateParams,
 	poolKey: string,
 	created: boolean,
+	warmHit?: "creating" | "ready",
 ): Promise<SessionCursorAgentLease | undefined> {
 	if (entry.status === "busy") {
 		await entry.pendingCompletion;
@@ -479,7 +533,7 @@ async function tryLeaseReadyEntry(
 	}
 	const readyEntry = getCurrentReadyPoolEntry(scopeKey, poolKey);
 	if (!readyEntry) return undefined;
-	return leaseFromEntry(readyEntry, scopeKey, params, created);
+	return leaseFromEntry(readyEntry, scopeKey, params, created, warmHit);
 }
 
 /**
@@ -498,107 +552,125 @@ async function createSessionAgentEntry(
 	instanceId: number,
 	sendState: SessionCursorAgentSendState,
 	params: SessionCursorAgentCreateParams,
+	origin: SessionCursorAgentPoolEntryOrigin,
 ): Promise<SessionCursorAgentReadyEntry> {
-	let bridgeRun: CursorPiToolBridgeRun | undefined;
-	let sessionStore: OpenCursorSessionStore | undefined;
-	try {
-		const registeredBridge = getRegisteredCursorPiToolBridge();
-		if (registeredBridge) {
-			bridgeRun = await traceCursorAction(
-				{ action: "bridge_setup", scopeKey, instanceId, runtime: "local" },
-				() => registeredBridge.createRun({
-					onToolRequest: params.onBridgeToolRequest,
-					debugRecorder: params.debugRecorder,
-				}),
-			);
-			if (!bridgeRun.enabled || !bridgeRun.mcpServers) {
-				await bridgeRun.dispose();
-				bridgeRun = undefined;
+	// The SDK module load never touches the HTTP/1.1 global, so it stays outside the lock.
+	const resumeEligible = params.resumeAgentId !== undefined || (params.localResume === true && !params.forceCreate);
+	let cursorSdk: CursorSdkModule | undefined;
+	let createAgent = params.createAgent;
+	let resumeAgent = params.resumeAgent;
+	if (!createAgent || (resumeEligible && !resumeAgent) || params.useHttp1ForAgent !== undefined) {
+		cursorSdk = await loadCursorSdk();
+		createAgent ??= cursorSdk.Agent.create;
+		resumeAgent ??= cursorSdk.Agent.resume;
+	}
+	// The SDK reads its HTTP/1.1 global lazily when the transport is constructed, so the
+	// whole configure -> bridge -> store -> Agent.create/resume segment runs under the
+	// HTTP/1.1 lock: another acquire's configure can never land between ours and the
+	// capture. Lifecycle resets clear the same global through clearCursorSdkHttp1UnderLock(),
+	// so they also queue behind any in-flight capture instead of flipping it.
+	return runWithCursorSdkHttp1Lock(async () => {
+		let bridgeRun: CursorPiToolBridgeRun | undefined;
+		let sessionStore: OpenCursorSessionStore | undefined;
+		try {
+			if (cursorSdk && params.useHttp1ForAgent !== undefined) {
+				configureCursorSdkHttp1(cursorSdk, params.useHttp1ForAgent);
 			}
-		}
-
-		const resolvedPoolKey = buildSessionAgentPoolKey(scopeKey, params);
-		const resumeEligible = params.resumeAgentId !== undefined || (params.localResume === true && !params.forceCreate);
-		let createAgent = params.createAgent;
-		let resumeAgent = params.resumeAgent;
-		if (!createAgent || (resumeEligible && !resumeAgent)) {
-			const sdk = await loadCursorSdk();
-			createAgent ??= sdk.Agent.create;
-			resumeAgent ??= sdk.Agent.resume;
-		}
-		const persistedResumeHandle = getPersistedResumeHandle(resolvedPoolKey, params);
-		const resumeAgentId = params.resumeAgentId ?? persistedResumeHandle?.agentId;
-		const storeSelection = await openCursorSessionStoreForScope({
-			cwd: params.cwd,
-			scopeKey,
-			persistent: persistentStore,
-			hasResumeHandle: resumeAgentId !== undefined,
-			resumeIdentity: params.resumeStoreIdentity ?? persistedResumeHandle?.storeIdentity,
-		});
-		sessionStore = storeSelection.sessionStore;
-		const { identities } = storeSelection;
-		const resumeAttemptAllowed = storeSelection.resumeAttemptAllowed;
-		let resumeNotice = storeSelection.resumeFallback ? LOCAL_RESUME_FALLBACK_NOTICE : undefined;
-		const buildAgentOptions = () => ({
-			apiKey: params.apiKey,
-			// Cursor 云端 managed skills 不在本工作流使用；同步走全局 fetch 且
-			// api.cursor.com 间歇性阻断，失败时每轮会话打 WARN。直接关闭同步。
-			includeManagedSkills: false,
-			model: params.modelSelection,
-			mode: params.agentMode,
-			local: buildCursorLocalAgentOptions({
-				cwd: params.cwd,
-				settingSources: params.settingSources,
-				localSafety: params.localSafety,
-				store: sessionStore!.store,
-			}),
-			...(bridgeRun?.mcpServers ? { mcpServers: bridgeRun.mcpServers } : {}),
-		});
-		let agent: SDKAgent | undefined;
-		let effectiveSendState = sendState;
-		let resumed = false;
-		appendCursorAction({ action: "agent_resume_policy", phase: "decision", scopeKey, instanceId, resumeEligible, hasResumeHandle: resumeAgentId !== undefined, resumeAttemptAllowed, resumeFallback: storeSelection.resumeFallback, forceCreate: params.forceCreate });
-		if (resumeAgentId && resumeAttemptAllowed && resumeAgent) {
-			try {
-				agent = await traceCursorAction({ action: "agent_resume", scopeKey, instanceId, agentId: resumeAgentId, runtime: "local" }, () => resumeAgent(resumeAgentId, buildAgentOptions()));
-				effectiveSendState = { ...(params.checkpointSendState ?? persistedResumeHandle?.sendState ?? sendState) };
-				resumed = true;
-			} catch (error) {
-				// An explicit resume target (checkpoint restore) must surface rejection: the
-				// restore transaction in turn-prepare owns the unavailable mark, copy-target
-				// cleanup, and the force-create fallback. Persisted-handle resume keeps the
-				// in-entry fallback with a continuity notice.
-				if (params.resumeAgentId !== undefined) throw error;
-				if (persistentStore) resumeNotice = LOCAL_RESUME_FALLBACK_NOTICE;
-				if (!cursorSessionStoreIdentitiesEqual(sessionStore.identity, identities.sessionStore)) {
-					await sessionStore.dispose().catch(() => undefined);
-					sessionStore = await openCursorSessionStore(params.cwd, identities.sessionStore);
+			const registeredBridge = getRegisteredCursorPiToolBridge();
+			if (registeredBridge) {
+				bridgeRun = await traceCursorAction(
+					{ action: "bridge_setup", scopeKey, instanceId, runtime: "local" },
+					() => registeredBridge.createRun({
+						onToolRequest: params.onBridgeToolRequest,
+						debugRecorder: params.debugRecorder,
+					}),
+				);
+				if (!bridgeRun.enabled || !bridgeRun.mcpServers) {
+					await bridgeRun.dispose();
+					bridgeRun = undefined;
 				}
 			}
-		}
-		agent ??= await traceCursorAction({ action: "agent_create", scopeKey, instanceId, runtime: "local", forceCreate: params.forceCreate }, () => createAgent(buildAgentOptions()), (created) => ({ agentId: created.agentId }));
-		if (!agent) throw new Error("Cursor SDK agent creation returned no agent");
-		if (!sessionStore) throw new Error("Cursor SDK session store was not opened");
 
-		return {
-			status: "ready",
-			poolKey: resolvedPoolKey,
-			instanceId,
-			scopeKey,
-			agent,
-			bridgeRun,
-			sessionStore,
-			sendState: effectiveSendState,
-			resumeEnabled: params.localResume === true,
-			resumed,
-			...(resumeNotice ? { resumeNotice } : {}),
-		};
-	} catch (error) {
-		bridgeRun?.cancel("Cursor session agent create failed");
-		await bridgeRun?.dispose().catch(() => undefined);
-		await sessionStore?.dispose().catch(() => undefined);
-		throw error;
-	}
+			const resolvedPoolKey = buildSessionAgentPoolKey(scopeKey, params);
+			const persistedResumeHandle = getPersistedResumeHandle(resolvedPoolKey, params);
+			const resumeAgentId = params.resumeAgentId ?? persistedResumeHandle?.agentId;
+			const storeSelection = await openCursorSessionStoreForScope({
+				cwd: params.cwd,
+				scopeKey,
+				persistent: persistentStore,
+				hasResumeHandle: resumeAgentId !== undefined,
+				resumeIdentity: params.resumeStoreIdentity ?? persistedResumeHandle?.storeIdentity,
+			});
+			sessionStore = storeSelection.sessionStore;
+			const { identities } = storeSelection;
+			const resumeAttemptAllowed = storeSelection.resumeAttemptAllowed;
+			let resumeNotice = storeSelection.resumeFallback ? LOCAL_RESUME_FALLBACK_NOTICE : undefined;
+			const buildAgentOptions = () => ({
+				apiKey: params.apiKey,
+				// Cursor 云端 managed skills 不在本工作流使用；同步走全局 fetch 且
+				// api.cursor.com 间歇性阻断，失败时每轮会话打 WARN。直接关闭同步。
+				includeManagedSkills: false,
+				model: params.modelSelection,
+				mode: params.agentMode,
+				local: buildCursorLocalAgentOptions({
+					cwd: params.cwd,
+					settingSources: params.settingSources,
+					localSafety: params.localSafety,
+					store: sessionStore!.store,
+				}),
+				...(bridgeRun?.mcpServers ? { mcpServers: bridgeRun.mcpServers } : {}),
+			});
+			let agent: SDKAgent | undefined;
+			let effectiveSendState = sendState;
+			let resumed = false;
+			appendCursorAction({ action: "agent_resume_policy", phase: "decision", scopeKey, instanceId, resumeEligible, hasResumeHandle: resumeAgentId !== undefined, resumeAttemptAllowed, resumeFallback: storeSelection.resumeFallback, forceCreate: params.forceCreate });
+			if (resumeAgentId && resumeAttemptAllowed && resumeAgent) {
+				try {
+					agent = await traceCursorAction({ action: "agent_resume", scopeKey, instanceId, agentId: resumeAgentId, runtime: "local" }, () => resumeAgent(resumeAgentId, buildAgentOptions()));
+					effectiveSendState = { ...(params.checkpointSendState ?? persistedResumeHandle?.sendState ?? sendState) };
+					resumed = true;
+				} catch (error) {
+					// An explicit resume target (checkpoint restore) must surface rejection: the
+					// restore transaction in turn-prepare owns the unavailable mark, copy-target
+					// cleanup, and the force-create fallback. Persisted-handle resume keeps the
+					// in-entry fallback with a continuity notice.
+					if (params.resumeAgentId !== undefined) throw error;
+					if (persistentStore) resumeNotice = LOCAL_RESUME_FALLBACK_NOTICE;
+					if (!cursorSessionStoreIdentitiesEqual(sessionStore.identity, identities.sessionStore)) {
+						await sessionStore.dispose().catch(() => undefined);
+						sessionStore = await openCursorSessionStore(params.cwd, identities.sessionStore);
+					}
+				}
+			}
+			agent ??= await traceCursorAction({ action: "agent_create", scopeKey, instanceId, runtime: "local", forceCreate: params.forceCreate }, () => createAgent(buildAgentOptions()), (created) => ({ agentId: created.agentId }));
+			if (!agent) throw new Error("Cursor SDK agent creation returned no agent");
+			if (!sessionStore) throw new Error("Cursor SDK session store was not opened");
+
+			return {
+				status: "ready",
+				poolKey: resolvedPoolKey,
+				instanceId,
+				scopeKey,
+				agent,
+				bridgeRun,
+				sessionStore,
+				sendState: effectiveSendState,
+				resumeEnabled: params.localResume === true,
+				resumed,
+				origin,
+				firstTurnObserved: false,
+				// Only a successful persisted-handle resume (never an explicit checkpoint
+				// resume target, never a fallback create) owes the process_resume bootstrap.
+				pendingProcessResumeBootstrap: resumed && params.resumeAgentId === undefined,
+				...(resumeNotice ? { resumeNotice } : {}),
+			};
+		} catch (error) {
+			bridgeRun?.cancel("Cursor session agent create failed");
+			await bridgeRun?.dispose().catch(() => undefined);
+			await sessionStore?.dispose().catch(() => undefined);
+			throw error;
+		}
+	});
 }
 
 export {
@@ -614,15 +686,80 @@ export function invalidateSessionAgent(
 	appendCursorAction({ action: "agent_invalidate", phase: "decision", scopeKey, reason: options?.deadTransport ? "dead_transport" : "lifecycle" });
 	invalidatedScopeKeys.add(scopeKey);
 	if (options?.deadTransport) deadTransportScopeKeys.add(scopeKey);
+	// Fence in-flight creations and not-yet-inserted warmup tickets for this scope:
+	// the placeholder publish check and warm ticket validation both key off this generation.
+	invalidateScopeCreations(scopeKey);
 }
 
-export async function acquireSessionCursorAgent(params: SessionCursorAgentCreateParams): Promise<SessionCursorAgentLease> {
-	const scopeKey = getCursorSessionScopeKey();
-	const persistentStore = getCursorSessionFile() !== undefined;
+/** Identity fence for a speculative warmup: scope session, creation generation, and terminal state must all still match. */
+interface SessionCursorAgentWarmTicket {
+	readonly scopeKey: string;
+	readonly scopeGeneration: number;
+	readonly creationGeneration: number;
+	readonly persistentStore: boolean;
+}
+
+/** Demand intent carries the scope identity captured once at the public acquire entry; retries never re-read ambient scope. */
+type SessionCursorAgentAcquisitionIntent =
+	| { kind: "demand"; scopeKey: string; persistentStore: boolean }
+	| { kind: "warm"; ticket: SessionCursorAgentWarmTicket };
+
+/** Private loop result. Warm never constructs or consumes a lease. */
+type SessionCursorAgentPoolAcquisition =
+	| {
+			kind: "ready";
+			entry: SessionCursorAgentReadyEntry;
+			poolKey: string;
+			created: boolean;
+			warmHit: "creating" | "ready" | undefined;
+		}
+	| { kind: "skipped"; reason: "occupied" | "stale" | "superseded" };
+
+function isWarmTicketCurrent(ticket: SessionCursorAgentWarmTicket): boolean {
+	const terminalGeneration = terminalDisposedScopeGenerations.get(ticket.scopeKey);
+	if (terminalGeneration !== undefined && terminalGeneration >= getCursorSessionScopeGeneration(ticket.scopeKey)) {
+		return false;
+	}
+	return getCursorSessionScopeGeneration(ticket.scopeKey) === ticket.scopeGeneration
+		&& getScopeCreationGeneration(ticket.scopeKey) === ticket.creationGeneration;
+}
+
+/** The single acquire/create/publish loop shared by demand acquires and speculative warmup. */
+async function acquirePoolEntry(
+	params: SessionCursorAgentCreateParams,
+	intent: SessionCursorAgentAcquisitionIntent,
+): Promise<SessionCursorAgentPoolAcquisition> {
+	const warm = intent.kind === "warm";
+	let ticket = intent.kind === "warm" ? intent.ticket : undefined;
+	const scopeKey = intent.kind === "warm" ? intent.ticket.scopeKey : intent.scopeKey;
+	const persistentStore = intent.kind === "warm" ? intent.ticket.persistentStore : intent.persistentStore;
+	let pendingWarmHit: "creating" | undefined;
 
 	while (true) {
-		assertScopeAcceptsAcquire(scopeKey);
+		if (warm) {
+			if (!ticket || !isWarmTicketCurrent(ticket)) return { kind: "skipped", reason: "stale" };
+		} else {
+			assertScopeAcceptsAcquire(scopeKey);
+		}
 		if (invalidatedScopeKeys.has(scopeKey)) {
+			if (warm) {
+				// Warm may clean up what invalidation left behind, but never evicts demand
+				// work: dispose synchronously deletes the entry and bumps the creation
+				// generation, so the successor ticket is captured in that same synchronous
+				// segment before awaiting disposal.
+				const disposal = disposePoolEntryForScope(scopeKey);
+				const successor: SessionCursorAgentWarmTicket = {
+						scopeKey,
+						scopeGeneration: getCursorSessionScopeGeneration(scopeKey),
+						creationGeneration: getScopeCreationGeneration(scopeKey),
+						persistentStore,
+					};
+					await disposal;
+					ticket = successor;
+					if (!isWarmTicketCurrent(successor)) return { kind: "skipped", reason: "stale" };
+					if (getSessionCursorAgentPoolState(scopeKey).status !== "empty") return { kind: "skipped", reason: "occupied" };
+					continue;
+			}
 			appendCursorAction({ action: "agent_reset", phase: "decision", scopeKey, reason: deadTransportScopeKeys.has(scopeKey) ? "dead_transport" : "scope_invalidated" });
 			await disposePoolEntryForScope(scopeKey);
 		}
@@ -631,16 +768,19 @@ export async function acquireSessionCursorAgent(params: SessionCursorAgentCreate
 		const state = getSessionCursorAgentPoolState(scopeKey);
 
 		if ((state.status === "ready" || state.status === "busy") && state.poolKey !== poolKey) {
+			if (warm) return { kind: "skipped", reason: "occupied" };
 			appendCursorAction({ action: "agent_reset", phase: "decision", scopeKey, instanceId: state.instanceId, agentId: state.agent.agentId, reason: "pool_key_changed" });
 			await disposePoolEntryForScope(scopeKey);
 			continue;
 		}
 
 		if (state.status === "ready") {
-			return leaseFromEntry(state, scopeKey, params, false);
+			if (warm) return { kind: "skipped", reason: "occupied" };
+			return { kind: "ready", entry: state, poolKey, created: false, warmHit: pendingWarmHit };
 		}
 
 		if (state.status === "busy") {
+			if (warm) return { kind: "skipped", reason: "occupied" };
 			const busyGeneration = state.busyGeneration;
 			await state.pendingCompletion;
 			if (busyGeneration !== getScopeCreationGeneration(scopeKey)) continue;
@@ -649,9 +789,12 @@ export async function acquireSessionCursorAgent(params: SessionCursorAgentCreate
 
 		if (state.status === "creating") {
 			if (state.poolKey !== poolKey) {
+				if (warm) return { kind: "skipped", reason: "occupied" };
 				await disposePoolEntryForScope(scopeKey);
 				continue;
 			}
+			if (warm) return { kind: "skipped", reason: "occupied" };
+			if (state.origin === "warm") pendingWarmHit ??= "creating";
 			try {
 				await state.creating;
 			} catch (error) {
@@ -665,15 +808,21 @@ export async function acquireSessionCursorAgent(params: SessionCursorAgentCreate
 			continue;
 		}
 
-		assertScopeAcceptsAcquire(scopeKey);
+		if (warm) {
+			if (!ticket || !isWarmTicketCurrent(ticket)) return { kind: "skipped", reason: "stale" };
+		} else {
+			assertScopeAcceptsAcquire(scopeKey);
+		}
+		const origin = intent.kind;
 		const creationGeneration = getScopeCreationGeneration(scopeKey);
 		const instanceId = allocateSessionAgentInstanceId();
 		const sendState = createInitialSendState();
 		let placeholder: SessionCursorAgentCreatingEntry;
-		const creating = createSessionAgentEntry(scopeKey, persistentStore, instanceId, sendState, params).then(async (createdEntry) => {
+		const creating = createSessionAgentEntry(scopeKey, persistentStore, instanceId, sendState, params, origin).then(async (createdEntry) => {
 			const stillCurrent =
 				sessionAgentsByScope.get(scopeKey) === placeholder &&
-				getScopeCreationGeneration(scopeKey) === placeholder.creationGeneration;
+				getScopeCreationGeneration(scopeKey) === placeholder.creationGeneration &&
+				createdEntry.poolKey === placeholder.poolKey;
 			if (!stillCurrent) {
 				await disposePoolEntry(createdEntry);
 				if (sessionAgentsByScope.get(scopeKey) === placeholder) {
@@ -692,19 +841,20 @@ export async function acquireSessionCursorAgent(params: SessionCursorAgentCreate
 			sendState,
 			creationGeneration,
 			creating,
+			origin,
+			firstTurnObserved: false,
 		};
 		sessionAgentsByScope.set(scopeKey, placeholder);
 
 		try {
 			const createdEntry = await creating;
-			const lease = await tryLeaseReadyEntry(createdEntry, scopeKey, params, poolKey, true);
-			if (lease) return lease;
-			continue;
+			return { kind: "ready", entry: createdEntry, poolKey, created: true, warmHit: pendingWarmHit };
 		} catch (error) {
 			if (sessionAgentsByScope.get(scopeKey) === placeholder) {
 				sessionAgentsByScope.delete(scopeKey);
 			}
 			if (error instanceof SessionCursorAgentCreationSupersededError) {
+				if (warm) return { kind: "skipped", reason: "superseded" };
 				assertScopeAcceptsAcquire(scopeKey);
 				rethrowSupersededWhenReplacedByDifferentPoolKey(scopeKey, poolKey, error);
 				continue;
@@ -712,6 +862,168 @@ export async function acquireSessionCursorAgent(params: SessionCursorAgentCreate
 			throw error;
 		}
 	}
+}
+
+export async function acquireSessionCursorAgent(params: SessionCursorAgentCreateParams): Promise<SessionCursorAgentLease> {
+	// Demand identity is captured once here and threaded into the shared loop: an
+	// awaited disposal during a retry must not re-read a switched ambient scope and
+	// create the replacement entry under the wrong scope.
+	const scopeKey = getCursorSessionScopeKey();
+	const persistentStore = getCursorSessionFile() !== undefined;
+	const intent: SessionCursorAgentAcquisitionIntent = { kind: "demand", scopeKey, persistentStore };
+	while (true) {
+		const acquisition = await acquirePoolEntry(params, intent);
+		if (acquisition.kind === "skipped") continue;
+		const lease = await tryLeaseReadyEntry(acquisition.entry, scopeKey, params, acquisition.poolKey, acquisition.created, acquisition.warmHit);
+		if (lease) return lease;
+	}
+}
+
+interface SessionCursorAgentWarmupSnapshot {
+	readonly modelId: string;
+	readonly ticket: SessionCursorAgentWarmTicket;
+	readonly cwd: string;
+	readonly resolvedConfig: CursorResolvedSdkConfig;
+	readonly apiKey: string;
+	readonly agentMode: AgentModeOption;
+	readonly modelSelection: ModelSelection;
+	readonly settingSources: SettingSource[] | undefined;
+}
+
+function journalSessionCursorAgentWarmup(
+	scopeKey: string,
+	phase: "start" | "decision" | "success" | "error",
+	reason: string | undefined,
+	extra?: { model?: string; instanceId?: number; agentId?: string },
+): void {
+	appendCursorAction({ action: "agent_warm", phase, scopeKey, ...(reason ? { reason } : {}), ...extra });
+}
+
+/**
+ * Snapshot everything the warmup needs from ambient state inside the caller's synchronous
+ * segment, so the async warmup never re-reads another scope's configuration. The ticket
+ * carries identity only; values live in this closure.
+ */
+function buildSessionCursorAgentWarmupSnapshot(modelId: string): SessionCursorAgentWarmupSnapshot | undefined {
+	const scopeKey = getCursorSessionScopeKey();
+	const skip = (reason: string): undefined => {
+		journalSessionCursorAgentWarmup(scopeKey, "decision", reason, { model: modelId });
+		return undefined;
+	};
+	const cwd = getCursorSessionCwd();
+	const resolvedConfig = resolveEffectiveCursorConfig({
+		cwd,
+		projectTrusted: getCursorSessionProjectTrusted(),
+	});
+	if (resolvedConfig.runtime.value === "cloud") return skip("skip_cloud");
+	let agentMode: AgentModeOption | undefined;
+	try {
+		agentMode = getCursorProviderAgentModeOrThrow();
+	} catch {
+		agentMode = undefined;
+	}
+	if (!agentMode) return skip("skip_invalid_mode");
+	const apiKey = resolveCursorApiKey(process.env.CURSOR_API_KEY);
+	if (!apiKey) return skip("skip_missing_key");
+	return {
+		modelId,
+		ticket: {
+			scopeKey,
+			scopeGeneration: getCursorSessionScopeGeneration(scopeKey),
+			creationGeneration: getScopeCreationGeneration(scopeKey),
+			persistentStore: getCursorSessionFile() !== undefined,
+		},
+		cwd,
+		resolvedConfig,
+		agentMode,
+		apiKey,
+		// Per-turn reasoning arrives with the first stream call; predict "off" and let a
+		// pool-key mismatch dispose the wasted warm entry rather than guessing higher.
+		modelSelection: buildCursorModelSelection(modelId, "off", getEffectiveFastForModelId(modelId)),
+		settingSources: getEffectiveCursorSettingSources(),
+	};
+}
+
+/** Warm-side acquire params for a snapshot; HTTP/1.1 configure happens in the shared create path, not here. */
+function buildSessionCursorAgentWarmupAcquireParams(snapshot: SessionCursorAgentWarmupSnapshot): SessionCursorAgentCreateParams {
+	return {
+		apiKey: snapshot.apiKey,
+		agentMode: snapshot.agentMode,
+		cwd: snapshot.cwd,
+		modelSelection: snapshot.modelSelection,
+		settingSources: snapshot.settingSources,
+		localSafety: {
+			autoReview: snapshot.resolvedConfig.local.autoReview.value,
+			sandboxEnabled: snapshot.resolvedConfig.local.sandboxEnabled.value,
+		},
+		localResume: snapshot.resolvedConfig.local.resume.value,
+		useHttp1ForAgent: snapshot.resolvedConfig.local.useHttp1ForAgent,
+	};
+}
+
+async function runSessionCursorAgentWarmup(snapshot: SessionCursorAgentWarmupSnapshot): Promise<void> {
+	const { ticket, modelId } = snapshot;
+	let restoreOutputFilter: (() => void) | undefined;
+	try {
+		journalSessionCursorAgentWarmup(ticket.scopeKey, "start", undefined, { model: modelId });
+		// Conservative admission: existing checkpoint history keeps the pool physically empty so
+		// the empty-pool restore gate in turn prepare stays transparent.
+		if (hasCursorCheckpointHistory(ticket.scopeKey)) {
+			journalSessionCursorAgentWarmup(ticket.scopeKey, "decision", "skip_checkpoint_history", { model: modelId });
+			return;
+		}
+		const sdk = await loadCursorSdk();
+		if (!isWarmTicketCurrent(ticket)) {
+			journalSessionCursorAgentWarmup(ticket.scopeKey, "decision", "skip_stale", { model: modelId });
+			return;
+		}
+		const { Agent } = sdk;
+		installCursorMcpToolTimeoutOverride();
+		ensureCursorRipgrepPath();
+		restoreOutputFilter = installCursorSdkOutputFilter();
+		const params: SessionCursorAgentCreateParams = {
+			...buildSessionCursorAgentWarmupAcquireParams(snapshot),
+			createAgent: (options) => suppressCursorSdkOutput(() => Agent.create(options)),
+			resumeAgent: (agentId, options) => Agent.resume(agentId, options),
+		};
+		const acquisition = await acquirePoolEntry(params, { kind: "warm", ticket });
+		if (acquisition.kind === "skipped") {
+			journalSessionCursorAgentWarmup(
+				ticket.scopeKey,
+				"decision",
+				acquisition.reason === "superseded" ? "superseded" : `skip_${acquisition.reason}`,
+				{ model: modelId },
+			);
+			return;
+		}
+		journalSessionCursorAgentWarmup(ticket.scopeKey, "success", "ready", {
+			model: modelId,
+			instanceId: acquisition.entry.instanceId,
+			agentId: acquisition.entry.agent.agentId,
+		});
+	} catch {
+		// Fire-and-forget contract: background failures surface as one bounded reason code.
+		journalSessionCursorAgentWarmup(ticket.scopeKey, "error", "failed", { model: modelId });
+	} finally {
+		restoreOutputFilter?.();
+	}
+}
+
+/**
+ * Best-effort same-key create-ahead for the current session scope: publish one pool entry
+ * under the key the next prompt is expected to acquire. Returns immediately; never blocks,
+ * never throws, and never propagates background failures (journal reason codes only).
+ */
+export function scheduleSessionCursorAgentWarmup(modelId: string): void {
+	let snapshot: SessionCursorAgentWarmupSnapshot | undefined;
+	try {
+		snapshot = buildSessionCursorAgentWarmupSnapshot(modelId);
+	} catch {
+		// Admission must never break the lifecycle event that scheduled it.
+		return;
+	}
+	if (!snapshot) return;
+	void runSessionCursorAgentWarmup(snapshot);
 }
 
 export type RefreshSessionCursorAgentConfigResult = "reloaded" | "no-agent" | "busy" | "unsupported";
@@ -764,6 +1076,9 @@ export const __testUtils = {
 	disposeAllSessionCursorAgents,
 	buildApiKeyPoolKeyFingerprint,
 	buildSessionAgentPoolKey,
+	buildSessionCursorAgentWarmupSnapshot,
+	buildSessionCursorAgentWarmupAcquireParams,
+	getScopeCreationGeneration,
 	setDeadTransportAgentDisposeTimeoutMs(ms: number): number {
 		const previous = deadTransportAgentDisposeTimeoutMs;
 		deadTransportAgentDisposeTimeoutMs = ms;

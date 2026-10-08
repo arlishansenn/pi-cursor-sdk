@@ -55,6 +55,7 @@ describe("CursorRunFinalizer", () => {
 				storeIdentity: { version: 1, stateRoot: "/tmp/store" },
 				sendState: { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0 },
 				created: false,
+				requiresProcessResumeBootstrap: false,
 				commitSend: async () => {},
 				trackRunCompletion,
 			} satisfies SessionCursorAgentLease,
@@ -178,6 +179,7 @@ describe("CursorRunFinalizer", () => {
 				storeIdentity: { version: 1, stateRoot: "/tmp/store" },
 				sendState: { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0 },
 				created: true,
+				requiresProcessResumeBootstrap: false,
 				commitSend: async () => {
 					throw new Error("commit failed before terminal event");
 				},
@@ -286,6 +288,7 @@ describe("CursorRunFinalizer", () => {
 				storeIdentity: { version: 1, stateRoot: "/tmp/store" },
 				sendState: { bootstrapped: false, contextFingerprint: "", incrementalSendCount: 0 },
 				created: true,
+				requiresProcessResumeBootstrap: false,
 				commitSend: async () => {},
 				trackRunCompletion: () => {},
 			} satisfies SessionCursorAgentLease,

@@ -84,6 +84,14 @@ export function findCursorCheckpointPoint(scopeKey: string, context: Context, st
 		&& !shouldBootstrapCursorContext({ bootstrapped: true, contextFingerprint: point.contextFingerprint }, context));
 }
 
+/**
+ * True for any loaded ledger point belonging to this scope, including unavailable points.
+ * Existence only: callers must not use this to infer a specific point, store, or context.
+ */
+export function hasCursorCheckpointHistory(scopeKey: string): boolean {
+	return state.points.some((point) => point.scopeKey === scopeKey);
+}
+
 export function markCursorCheckpointPointUnavailable(scopeKey: string, contextFingerprint: string): void {
 	const point = state.points.find((candidate) => candidate.scopeKey === scopeKey && candidate.contextFingerprint === contextFingerprint);
 	if (!point) return;

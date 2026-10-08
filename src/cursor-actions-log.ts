@@ -8,7 +8,7 @@ import { getCursorSessionScopeKey } from "./cursor-session-scope.js";
 
 // Metadata only: never pass SDK options, errors, prompt text, or raw pool keys.
 type Action = "agent_create" | "agent_resume" | "agent_resume_policy" | "agent_lease" |
-	"agent_invalidate" | "agent_reset" | "agent_dispose" | "send_state_commit" |
+	"agent_invalidate" | "agent_reset" | "agent_dispose" | "agent_warm" | "send_state_commit" |
 	"send_plan" | "prompt_build" | "agent_send" | "session_identity" | "checkpoint_restore" | "checkpoint_restore_cleanup" |
 	"sdk_load" | "bridge_setup" | "store_open" | "first_text";
 interface ActionFields {
