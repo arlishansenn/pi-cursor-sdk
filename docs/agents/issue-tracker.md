@@ -2,6 +2,10 @@
 
 Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
+> Fork note: this clone pushes to `origin` (the fork) but `gh` may resolve the default repo to
+> upstream. Run `gh repo set-default arlishansenn/pi-cursor-sdk` once, or pass `--repo` explicitly
+> on every gh call, or issues land on the upstream tracker.
+
 ## Conventions
 
 - **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
