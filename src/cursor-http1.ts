@@ -1,5 +1,6 @@
 import type { CursorSdkModule } from "./cursor-sdk-runtime.js";
 import type { CursorResolvedSetting } from "./cursor-config.js";
+import { installCursorSdkSessionProcessErrorGuard } from "./cursor-sdk-process-error-guard.js";
 import { asRecord } from "./cursor-record-utils.js";
 
 export const CURSOR_HTTP1_ENTRY_TYPE = "cursor-http1-state";
@@ -14,7 +15,36 @@ type CursorHttp1Sdk = {
 
 let sessionCursorHttp1Enabled: boolean | undefined;
 let globalPreferenceAuthoritative = false;
-let configuredCursor: CursorHttp1Sdk["Cursor"] | undefined;
+
+interface CursorHttpCleanupState {
+	tail: Promise<unknown>;
+	configured: Set<CursorHttp1Sdk["Cursor"]>;
+	retired: Set<Promise<void>>;
+}
+
+// Pi re-evaluates extensions on cwd changes while native SDK imports retain identity.
+const cleanupKey = Symbol.for("pi-cursor-sdk.http-cleanup.v1");
+const processState = globalThis as typeof globalThis & { [cleanupKey]?: CursorHttpCleanupState };
+const cleanup = processState[cleanupKey] ??= {
+	tail: Promise.resolve(),
+	configured: new Set(),
+	retired: new Set(),
+};
+
+export function trackRetiredCursorCreation(creation: Promise<unknown>): void {
+	const guard = installCursorSdkSessionProcessErrorGuard();
+	const completion = creation.then(() => undefined, () => undefined).finally(() => guard.dispose());
+	cleanup.retired.add(completion);
+	void completion.then(() => cleanup.retired.delete(completion));
+}
+
+export async function drainRetiredCursorCreations(): Promise<void> {
+	while (cleanup.retired.size > 0) await Promise.all([...cleanup.retired]);
+}
+
+export function reportCursorHttpCleanupFailure(): void {
+	console.error("[cursor] Deferred HTTP configuration cleanup failed.");
+}
 
 export function isCursorHttp1EntryData(value: unknown): value is CursorHttp1EntryData {
 	return typeof asRecord(value)?.enabled === "boolean";
@@ -37,12 +67,13 @@ export function setCursorHttp1GlobalPreferenceAuthoritative(authoritative: boole
 }
 
 export function clearCursorSdkHttp1(): void {
-	if (configuredCursor === undefined) return;
-	configuredCursor.configure({ local: { useHttp1ForAgent: null } });
-	configuredCursor = undefined;
+	for (const cursor of cleanup.configured) {
+		cursor.configure({ local: { useHttp1ForAgent: null } });
+		cleanup.configured.delete(cursor);
+	}
 }
 
-/** Resolve the effective per-agent HTTP/1.1 value a create/resume captures: only non-builtin settings configure the SDK global. */
+/** Only non-builtin settings configure the SDK global. */
 export function resolveCursorSdkHttp1ForAgent(setting: CursorResolvedSetting<boolean>): boolean | undefined {
 	return setting.source !== "builtin" ? setting.value : undefined;
 }
@@ -54,33 +85,27 @@ export function configureCursorSdkHttp1(
 	const useHttp1ForAgent = resolveCursorSdkHttp1ForAgent(setting);
 	if (useHttp1ForAgent !== undefined) {
 		sdk.Cursor.configure({ local: { useHttp1ForAgent } });
-		configuredCursor = sdk.Cursor;
+		cleanup.configured.add(sdk.Cursor);
 		return useHttp1ForAgent;
 	}
-	if (configuredCursor === sdk.Cursor) clearCursorSdkHttp1();
-	else configuredCursor = undefined;
+	if (cleanup.configured.has(sdk.Cursor)) {
+		sdk.Cursor.configure({ local: { useHttp1ForAgent: null } });
+		cleanup.configured.delete(sdk.Cursor);
+	}
 	return undefined;
 }
 
-// The SDK's HTTP/1.1 preference is global state the transport reads lazily at creation,
-// so one acquire's configure and another's capture must never interleave. This promise
-// chain is the single structural serializer for that window; nothing here may await it.
-// Tradeoff: a hung create/resume inside a critical section blocks every scope's next
-// creation until it settles. Lifecycle resets take the same lock so they can never flip
-// a mid-flight capture.
-let cursorSdkHttp1LockTail: Promise<unknown> = Promise.resolve();
-
-/** Serialize a critical section that spans Cursor HTTP/1.1 configure and the SDK transport capture (Agent.create/resume). */
+// This orders extension writes and create/resume work, not lazy first-send transport acquisition.
 export function runWithCursorSdkHttp1Lock<T>(fn: () => Promise<T>): Promise<T> {
-	const run = cursorSdkHttp1LockTail.then(fn, fn);
-	cursorSdkHttp1LockTail = run.then(
+	const run = cleanup.tail.then(fn, fn);
+	cleanup.tail = run.then(
 		() => undefined,
 		() => undefined,
 	);
 	return run;
 }
 
-/** Lifecycle reset path: clear extension-owned SDK transport config without racing an in-flight capture. */
+/** Clear extension-owned SDK configuration after queued creation work. */
 export function clearCursorSdkHttp1UnderLock(): Promise<void> {
 	return runWithCursorSdkHttp1Lock(() => {
 		clearCursorSdkHttp1();
@@ -92,7 +117,8 @@ export const __testUtils = {
 	reset(): void {
 		sessionCursorHttp1Enabled = undefined;
 		globalPreferenceAuthoritative = false;
-		configuredCursor = undefined;
-		cursorSdkHttp1LockTail = Promise.resolve();
+		cleanup.configured.clear();
+		cleanup.retired.clear();
+		cleanup.tail = Promise.resolve();
 	},
 };

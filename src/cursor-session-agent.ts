@@ -30,6 +30,7 @@ import {
 	configureCursorSdkHttp1,
 	resolveCursorSdkHttp1ForAgent,
 	runWithCursorSdkHttp1Lock,
+	trackRetiredCursorCreation,
 } from "./cursor-http1.js";
 import { installCursorMcpToolTimeoutOverride } from "./cursor-mcp-timeout-override.js";
 import { ensureCursorRipgrepPath } from "./cursor-ripgrep-path.js";
@@ -320,9 +321,7 @@ async function disposePoolEntryForScope(scopeKey: string, options?: { terminal?:
 		entry.releaseBusyWait();
 	}
 	if (entry.status === "creating") {
-		entry.creating.catch(() => {
-			// In-flight Agent.create was orphaned by scope disposal; active waiters surface errors elsewhere.
-		});
+		trackRetiredCursorCreation(entry.creating);
 		return;
 	}
 	await disposePoolEntry(entry, { deadTransport, retainStore: options?.retainStore });
@@ -553,6 +552,7 @@ async function createSessionAgentEntry(
 	sendState: SessionCursorAgentSendState,
 	params: SessionCursorAgentCreateParams,
 	origin: SessionCursorAgentPoolEntryOrigin,
+	creationGeneration: number,
 ): Promise<SessionCursorAgentReadyEntry> {
 	// The SDK module load never touches the HTTP/1.1 global, so it stays outside the lock.
 	const resumeEligible = params.resumeAgentId !== undefined || (params.localResume === true && !params.forceCreate);
@@ -564,12 +564,11 @@ async function createSessionAgentEntry(
 		createAgent ??= cursorSdk.Agent.create;
 		resumeAgent ??= cursorSdk.Agent.resume;
 	}
-	// The SDK reads its HTTP/1.1 global lazily when the transport is constructed, so the
-	// whole configure -> bridge -> store -> Agent.create/resume segment runs under the
-	// HTTP/1.1 lock: another acquire's configure can never land between ours and the
-	// capture. Lifecycle resets clear the same global through clearCursorSdkHttp1UnderLock(),
-	// so they also queue behind any in-flight capture instead of flipping it.
+	// The SDK acquires its executor lazily on send; creation is not a transport snapshot.
 	return runWithCursorSdkHttp1Lock(async () => {
+		if (getScopeCreationGeneration(scopeKey) !== creationGeneration) {
+			throw new SessionCursorAgentCreationSupersededError();
+		}
 		let bridgeRun: CursorPiToolBridgeRun | undefined;
 		let sessionStore: OpenCursorSessionStore | undefined;
 		try {
@@ -818,7 +817,7 @@ async function acquirePoolEntry(
 		const instanceId = allocateSessionAgentInstanceId();
 		const sendState = createInitialSendState();
 		let placeholder: SessionCursorAgentCreatingEntry;
-		const creating = createSessionAgentEntry(scopeKey, persistentStore, instanceId, sendState, params, origin).then(async (createdEntry) => {
+		const creating = createSessionAgentEntry(scopeKey, persistentStore, instanceId, sendState, params, origin, creationGeneration).then(async (createdEntry) => {
 			const stillCurrent =
 				sessionAgentsByScope.get(scopeKey) === placeholder &&
 				getScopeCreationGeneration(scopeKey) === placeholder.creationGeneration &&

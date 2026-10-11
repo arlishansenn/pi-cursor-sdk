@@ -117,6 +117,6 @@ export default async function (pi: CursorExtensionApi) {
 	});
 
 	registerCursorProvider(pi, models);
-	// Register last so session_shutdown cleanup remains protected until other Cursor handlers finish.
+	// Register last for awaited cleanup; retired creation owns a separate guard lease.
 	registerCursorSdkSessionProcessErrorGuard(pi);
 }

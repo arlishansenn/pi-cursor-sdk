@@ -264,6 +264,23 @@ describe("cursor-session-agent warmup (same-key create-ahead)", () => {
 		expect(mockedCreate).toHaveBeenCalledTimes(1);
 	});
 
+	it.each(["new", "resume", "fork"] as const)("returns from %s with a pending warm create and drains it on quit", async (reason) => {
+		const { agent, release } = deferredWarmCreate("agent-warm-switch");
+		const pi = createEventHarness();
+		registerCursorSessionAgentLifecycle(pi);
+		scheduleSessionCursorAgentWarmup(MODEL_ID);
+		await vi.waitFor(() => expect(mockedCreate).toHaveBeenCalledOnce());
+		try {
+			await pi.runSessionShutdown({ reason });
+			expect(agent[Symbol.asyncDispose]).not.toHaveBeenCalled();
+			expect(sessionAgentTestUtils.getSessionCursorAgentPoolState(SCOPE_KEY).status).toBe("empty");
+		} finally {
+			release();
+			await pi.runSessionShutdown({ reason: "quit" });
+		}
+		expect(agent[Symbol.asyncDispose]).toHaveBeenCalledOnce();
+	});
+
 	it("keeps one entry per scope when warmup is scheduled repeatedly", async () => {
 		const { release } = deferredWarmCreate("agent-warm-once");
 		scheduleSessionCursorAgentWarmup(MODEL_ID);
@@ -425,11 +442,9 @@ describe("cursor-session-agent warmup (same-key create-ahead)", () => {
 			join(resolveInstalledPackageRoot("@cursor/sdk"), "dist/esm/index.js"),
 			"utf8",
 		);
-		// Package-shape check only: Cursor.configure persists useHttp1ForAgent into
-		// module-scoped state, and transports read that state through a lazily evaluated
-		// getter. This is the premise the configure→capture lock depends on; it is NOT
-		// proof of the capture contract, which the serialized-interleave regression in
-		// test/cursor-session-agent-http1.test.ts covers behaviorally.
+		// Source contract only. Executor acquisition on send can observe later configuration.
+		expect(source).toMatch(/getExecutor\(\)\{.{0,500}acquireLocalExecutor/);
+		expect(source).toContain("yield this.getExecutor()");
 		expect(source).toMatch(/useHttp1ForAgent"\s*in\s*\w+\.local/);
 		const binding = source.match(/([A-Za-z_$][\w$]*)\s*=\s*e\("\.\/src\/agent\/sdk-config\.ts"\)/);
 		expect(binding).toBeDefined();
