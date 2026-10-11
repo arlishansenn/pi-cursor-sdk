@@ -5,7 +5,7 @@ import type {
 	SessionShutdownEvent,
 	SessionTreeEvent,
 } from "@earendil-works/pi-coding-agent";
-import { clearCursorSdkHttp1UnderLock } from "./cursor-http1.js";
+import { clearCursorSdkHttp1UnderLock, drainRetiredCursorCreations, reportCursorHttpCleanupFailure } from "./cursor-http1.js";
 import { onCursorSessionScopeKeyChange } from "./cursor-session-scope.js";
 import {
 	disposeSessionCursorAgent,
@@ -33,7 +33,12 @@ export function registerCursorSessionAgentLifecycle(pi: CursorSessionAgentLifecy
 			}
 			await disposeSessionCursorAgent();
 		} finally {
-			await clearCursorSdkHttp1UnderLock();
+			if (event.reason === "new" || event.reason === "resume" || event.reason === "fork") {
+				void clearCursorSdkHttp1UnderLock().catch(reportCursorHttpCleanupFailure);
+			} else {
+				await drainRetiredCursorCreations();
+				await clearCursorSdkHttp1UnderLock();
+			}
 		}
 	});
 	pi.on("session_compact", () => {
