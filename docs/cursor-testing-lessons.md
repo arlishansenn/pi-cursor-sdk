@@ -8,6 +8,27 @@ This document records maintainer testing lessons for `pi-cursor-sdk`. It complem
 
 For a **minimal one-session dogfood pass** (baseline env, one native + one bridge call, JSONL ID patterns, bootstrap manifest, edit diff card), use the [Cursor dogfood checklist](./cursor-dogfood-checklist.md) as inner-loop evidence before running the platform smoke gate.
 
+## Recover a failed source update
+
+If a source-installed extension loses `dist/index.js` after a failed update, retain the failing command output and fix the reported acquisition or build error. Then rerun `pi update <the-same-installed-git-source>`. Check its exit status before restarting Pi. Do not treat a manual `npm run prepare` as the permanent recovery procedure. A repeated failure needs the install logs, not a silent fallback.
+
+The controlled regression leaves the extension unavailable after failure until the same-head retry succeeds. It does not establish failure atomicity or explain the historical incident.
+
+Maintainers can run the opt-in regression from a checkout with Node, npm, Git, and a compatible Pi executable on PATH. Pass the executable itself, not an operator-session wrapper. The source repository's committed HEAD supplies the package under test.
+
+```bash
+node scripts/source-install-recovery.mjs --run /absolute/path/to/pi /absolute/path/to/source-repo /new/evidence-directory
+# Optional fifth argument supplies an npm cache directly. It is not copied and npm may update it.
+```
+
+This runs real `pi install`, a failed `pi update`, a same-head `pi update` retry, and extension `--help`. It makes no model requests but can download npm dependencies. It is not part of default tests.
+
+The harness supports POSIX only and fails closed on Windows. Its PATH contains private links to the selected Node and adjacent npm, plus `/usr/bin` and `/bin`; Git is selected from `/usr/bin/git`. It excludes inherited operator PATH entries. Process-group cleanup covers ordinary npm descendants, not descendants that deliberately create a new session. The harness uses a disposable HOME, agent directory, project, and bare Git origin. Pi's documented HTTPS Git source form is mapped to that origin with an isolated Git `insteadOf` setting. Pi's installed parser rejects `git:file:` sources. A same-tree seed commit forces an update to the supplied repository's HEAD without a hardcoded old revision. `source-install-recovery-adapter.cjs` redirects only the first nested prepare acquisition to an empty offline cache. This is a fault adapter producing real npm `ENOTCACHED`, not a real network-outage reproduction.
+
+Assertions require a nonzero failed update, the incomplete marker, an absent manifest entry, and recovery at the identical HEAD. Recovery must rebuild the entry, prune TypeScript, clear the marker, and expose the Cursor help flags. Child logs, assertion failures, and a manifest of the invocation, repository, tested commits, tree, selected tools, and versions remain in the evidence directory. Disposable installs and the origin are removed only after child process-group termination is confirmed. Unconfirmed termination retains the workspace and records its path. `source.bundle` retains both tested commits independently of the original checkout. After a forced process kill, a temporary `pi-source-recovery-*` directory may need manual removal. No existing user install is changed.
+
+For offline process-boundary coverage, run `npx vitest run test/prepare-script.test.ts test/build-script-swap.test.ts` and `node --test test/source-install-recovery-process.test.mjs`. The prepare test uses an explicit `execFile` adapter to check acquisition failure/retry and build-error precedence over cleanup failure. It does not prove npm, Pi registration, or real compiler behavior. Production prepare and build remain unchanged.
+
 ## Core lesson: integration-shaped bugs beat unit mocks
 
 The native replay `Tool grep not found` failure was integration-shaped, not unit-shaped:
