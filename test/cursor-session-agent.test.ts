@@ -744,6 +744,127 @@ describe("cursor-session-agent", () => {
 		expect(mockDispose).toHaveBeenCalledTimes(1);
 	});
 
+	it("bounds quit session_shutdown when SDK agent disposal never settles", async () => {
+		let releaseDispose: (() => void) | undefined;
+		const mockDispose = vi.fn().mockImplementation(() => new Promise<void>((resolve) => {
+			releaseDispose = resolve;
+		}));
+		const createAgent = vi.fn().mockResolvedValue({
+			agentId: "agent-1",
+			[Symbol.asyncDispose]: mockDispose,
+		});
+		const pi = createEventHarness();
+
+		registerCursorSessionAgentLifecycle(pi);
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/test.jsonl");
+		await acquireSessionCursorAgent({
+			apiKey: "test-key",
+			agentMode: "agent" as const,
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			createAgent,
+		});
+
+		vi.useFakeTimers();
+		try {
+			const shutdown = pi.runSessionShutdown({ reason: "quit" });
+			let settled = false;
+			void shutdown.then(() => {
+				settled = true;
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			expect(sessionAgentTestUtils.sessionAgentsByScope.has("/tmp/sessions/test.jsonl")).toBe(false);
+			await vi.advanceTimersByTimeAsync(999);
+			expect(settled).toBe(false);
+			await vi.advanceTimersByTimeAsync(1);
+			await shutdown;
+			expect(settled).toBe(true);
+		} finally {
+			vi.useRealTimers();
+			releaseDispose?.();
+		}
+	});
+
+	it("keeps waiting for disposal on reload session_shutdown without a deadline", async () => {
+		let releaseDispose: (() => void) | undefined;
+		const mockDispose = vi.fn().mockImplementation(() => new Promise<void>((resolve) => {
+			releaseDispose = resolve;
+		}));
+		const createAgent = vi.fn().mockResolvedValue({
+			agentId: "agent-1",
+			[Symbol.asyncDispose]: mockDispose,
+		});
+		const pi = createEventHarness();
+
+		registerCursorSessionAgentLifecycle(pi);
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/test.jsonl");
+		await acquireSessionCursorAgent({
+			apiKey: "test-key",
+			agentMode: "agent" as const,
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			createAgent,
+		});
+
+		vi.useFakeTimers();
+		try {
+			const shutdown = pi.runSessionShutdown({ reason: "reload" });
+			let settled = false;
+			void shutdown.then(() => {
+				settled = true;
+			});
+			// Reload keeps the fully-awaited cleanup: a blocked disposal must still hold
+			// shutdown past the quit deadline.
+			await vi.advanceTimersByTimeAsync(1500);
+			expect(settled).toBe(false);
+			releaseDispose?.();
+			await shutdown;
+			expect(settled).toBe(true);
+		} finally {
+			vi.useRealTimers();
+			releaseDispose?.();
+		}
+		expect(mockDispose).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not record a quit deadline exceed when cleanup completes first", async () => {
+		const actionsDir = await mkdtemp(join(tmpdir(), "quit-actions-"));
+		const actionsPath = join(actionsDir, "actions.jsonl");
+		vi.stubEnv("CURSOR_SDK_ACTIONS_LOG", actionsPath);
+		const mockDispose = vi.fn().mockResolvedValue(undefined);
+		const createAgent = vi.fn().mockResolvedValue({
+			agentId: "agent-1",
+			[Symbol.asyncDispose]: mockDispose,
+		});
+		const pi = createEventHarness();
+
+		registerCursorSessionAgentLifecycle(pi);
+		cursorSessionScopeTestUtils.set("/tmp/project", "/tmp/sessions/test.jsonl");
+		await acquireSessionCursorAgent({
+			apiKey: "test-key",
+			agentMode: "agent" as const,
+			cwd: "/tmp/project",
+			modelSelection: { id: "composer-2.5" },
+			createAgent,
+		});
+
+		try {
+			vi.useFakeTimers();
+			const shutdown = pi.runSessionShutdown({ reason: "quit" });
+			await vi.advanceTimersByTimeAsync(0);
+			await shutdown;
+			// The losing 1s deadline arm still fires; it must not journal an exceed record.
+			await vi.advanceTimersByTimeAsync(1500);
+			await actionLog.flush();
+			const logged = await readFile(actionsPath, "utf8");
+			expect(logged).not.toContain("quit_deadline_exceeded");
+		} finally {
+			vi.useRealTimers();
+			vi.unstubAllEnvs();
+			await rm(actionsDir, { recursive: true, force: true }).catch(() => undefined);
+		}
+	});
+
 	it("allows reacquiring a session agent after reload session_shutdown", async () => {
 		const mockDispose = vi.fn().mockResolvedValue(undefined);
 		const createAgent = vi.fn().mockImplementation(async () => ({
