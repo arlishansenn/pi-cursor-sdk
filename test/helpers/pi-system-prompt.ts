@@ -47,6 +47,6 @@ export async function runHarnessBeforeAgentStartWithPi(
 		assertActive: () => {},
 		emitError: (error: ExtensionError) => { throw new Error(error.error); },
 	} as unknown as InstanceType<typeof ExtensionRunner>;
-	const result = await ExtensionRunner.prototype.emitBeforeAgentStart.call(runner, "hello", undefined, options);
+	const result = await ExtensionRunner.prototype.emitBeforeAgentStart.call(runner, { messageType: "user", prompt: "hello" }, options);
 	return { options: result.systemPromptOptions, systemPrompt: buildSystemPrompt(result.systemPromptOptions) };
 }

@@ -71,7 +71,7 @@ If resync runs but `context.tools` is still stale (e.g. only `read` listed), the
 
 ## Stock/transcript provider contract
 
-`test/cursor-provider-pi-context.test.ts` drives real `ModelRuntime` / `ModelRegistry` requests into `streamCursor`, with only Cursor SDK execution mocked. Run it against each supported host with all Pi peer imports pinned to that host (including nested native imports); a top-level package version alone is not resolution evidence. Cover official Pi 0.87.1, official latest, and current `fitchmultz/pi` main. The currently validated local `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` packages are 0.87.1.
+`test/cursor-provider-pi-context.test.ts` drives real `ModelRuntime` / `ModelRegistry` requests into `streamCursor`, with only Cursor SDK execution mocked. Run it against each supported host with all Pi peer imports pinned to that host (including nested native imports); a top-level package version alone is not resolution evidence. Cover official Pi 0.87.1, official latest, and current `fitchmultz/pi` main. The currently validated local `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` packages are 1.4.0.
 
 The test covers bootstrap/incremental prompts, empty-vs-absent request tools, native replay/drain, cloud fresh/bootstrap selection, and actual host prompt serialization for context files and skills. It is offline contract evidence, not a replacement for the required live platform/cloud release gates.
 

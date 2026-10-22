@@ -215,6 +215,7 @@ describe("registerCursorSkillTool", () => {
 			"before_agent_start",
 			{
 				type: "before_agent_start",
+				messageType: "user" as const,
 				prompt: "hello",
 				systemPrompt: "System prompt.",
 				systemPromptOptions: { ...createDefaultSystemPromptOptions(dir), skills: [skill] },
@@ -246,6 +247,7 @@ describe("registerCursorSkillTool", () => {
 			"before_agent_start",
 			{
 				type: "before_agent_start",
+				messageType: "user" as const,
 				prompt: "hello",
 				systemPrompt: "System prompt.",
 				systemPromptOptions: { ...createDefaultSystemPromptOptions("/repo"), skills: [skill] },
@@ -270,6 +272,7 @@ describe("registerCursorSkillTool", () => {
 			"before_agent_start",
 			{
 				type: "before_agent_start",
+				messageType: "user" as const,
 				prompt: "hello",
 				systemPrompt: [
 					"System prompt.",
@@ -297,6 +300,7 @@ describe("registerCursorSkillTool", () => {
 			"before_agent_start",
 			{
 				type: "before_agent_start",
+				messageType: "user" as const,
 				prompt: "hello",
 				systemPrompt: "System prompt.",
 				systemPromptOptions: createDefaultSystemPromptOptions("/repo"),
@@ -315,6 +319,7 @@ describe("registerCursorSkillTool", () => {
 			"before_agent_start",
 			{
 				type: "before_agent_start",
+				messageType: "user" as const,
 				prompt: "hello",
 				systemPrompt: "System prompt.",
 				systemPromptOptions: createDefaultSystemPromptOptions("/repo"),

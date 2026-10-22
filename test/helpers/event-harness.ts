@@ -231,6 +231,7 @@ function createHarnessEventApi(): EventHarness {
 			"before_agent_start",
 			{
 				type: "before_agent_start",
+				messageType: "user" as const,
 				prompt: "start",
 				systemPrompt: "",
 				systemPromptOptions: createDefaultSystemPromptOptions(ctx.cwd),
