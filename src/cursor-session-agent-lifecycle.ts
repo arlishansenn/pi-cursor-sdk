@@ -25,8 +25,11 @@ export interface CursorSessionAgentLifecycleExtensionApi {
 // pi awaits session_shutdown handlers with no timeout, and @cursor/sdk local agent
 // disposal alone can block for its 2000ms telemetry-flush deadline plus pending
 // attribution waits. Quitting is user-perceived exit latency, so bound the whole
-// terminal cleanup instead of waiting out the SDK's slowest paths.
-const terminalQuitShutdownTimeoutMs = 1000;
+// terminal cleanup instead of waiting out the SDK's slowest paths. Healthy-network
+// disposal measures ~124ms (PR #53 live A/B; today's long-session repro ~360ms total
+// quit), so 250ms covers the healthy path with headroom while cutting the slow tail
+// from a full second to a quarter.
+const terminalQuitShutdownTimeoutMs = 250;
 
 export function registerCursorSessionAgentLifecycle(pi: CursorSessionAgentLifecycleExtensionApi): void {
 	onCursorSessionScopeKeyChange(async (previousScopeKey) => {
