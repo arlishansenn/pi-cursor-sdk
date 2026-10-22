@@ -28,6 +28,8 @@ export function createRenderContext(overrides: Partial<HarnessRenderContext> & {
 	return {
 		args: {},
 		toolCallId: "test-tool-call",
+		durationMs: 0,
+		outputPad: 0,
 		invalidate: () => {},
 		lastComponent: undefined,
 		state: undefined,

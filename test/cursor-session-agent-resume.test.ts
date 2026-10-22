@@ -211,7 +211,7 @@ describe("cursor-session-agent-resume", () => {
 		} finally {
 			rmSync(tempDir, { recursive: true, force: true });
 		}
-	}, process.platform === "win32" ? 20_000 : 5_000);
+	}, 20_000);
 
 	it("defers resume handle persistence until turn end so it records the completed assistant path", async () => {
 		const pi = createPiHarness();

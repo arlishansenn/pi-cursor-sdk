@@ -55,9 +55,9 @@ type ContractAgentCtor = new (options: {
 describe("installed Pi stream session id contract", () => {
 	it("passes the agent session id on stream options with affinity on and off", async () => {
 		expect(piPackage.name).toBe("@earendil-works/pi-coding-agent");
-		expect(piPackage.version).toBe("0.87.1");
-		expect(piPackage.dependencies?.["@earendil-works/pi-agent-core"]).toBe("^0.87.1");
-		expect(agentCorePackage.version).toBe("0.87.1");
+		expect(piPackage.version).toBe("1.4.0");
+		expect(piPackage.dependencies?.["@earendil-works/pi-agent-core"]).toBe("1.4.0");
+		expect(agentCorePackage.version).toBe("1.4.0");
 		const { Agent } = await import(agentCoreEntry) as { Agent: ContractAgentCtor };
 		const seen: Array<{ sessionId?: string; affinity?: boolean }> = [];
 		for (const sendSessionAffinityHeaders of [true, false]) {

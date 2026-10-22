@@ -23,6 +23,13 @@ vi.mock("@cursor/sdk", () => ({
 
 import { Cursor } from "@cursor/sdk";
 import type { ModelListItem } from "@cursor/sdk";
+import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+
+// Pi 1.4.0 types ProviderModelConfig as a chat|image|classifier union; discovery only emits chat configs.
+type ChatModelConfig = Extract<ProviderModelConfig, { reasoning: boolean }>;
+function chatConfigs(models: ProviderModelConfig[]): ChatModelConfig[] {
+	return models.filter((model): model is ChatModelConfig => "reasoning" in model);
+}
 
 const mockedList = vi.mocked(Cursor.models.list);
 
@@ -113,7 +120,7 @@ describe("discoverModels", () => {
 			"--model", "cursor/final", "--api-key", "last-key",
 		];
 
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 
 		expect(models.some((model) => model.id === "composer-2.5")).toBe(true);
 		expect(mockedList).not.toHaveBeenCalled();
@@ -140,7 +147,7 @@ describe("discoverModels", () => {
 			},
 		]);
 
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 
 		expect(mockedList).toHaveBeenCalledWith({ apiKey: "stored-key-123" });
 		expect(models.map((model) => model.id)).toEqual(["composer-2"]);
@@ -210,7 +217,7 @@ describe("discoverModels", () => {
 				variants: [{ params: [], displayName: "Model A", isDefault: true }],
 			},
 		]);
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 		expect(mockedList).toHaveBeenCalledWith({ apiKey: "test-key-123" });
 		expect(models.map((model) => model.id)).toEqual(["model-a", "model-b"]);
 		expect(models[0].name).toBe("Model A");
@@ -233,7 +240,7 @@ describe("discoverModels", () => {
 			},
 		]);
 
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 
 		expect(models.map((model) => model.id)).toEqual(["a-model@300k", "a-model@1m", "z-model@long", "z-model@short"]);
 		expect(getCursorModelMetadata("a-model@300k")?.defaultParams).toEqual([{ id: "context", value: "300k" }]);
@@ -264,7 +271,7 @@ describe("discoverModels", () => {
 			},
 		]);
 
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 
 		expect(models.map((model) => model.id)).toEqual(["gpt-5.5@1m", "gpt-5.5@272k", "gpt-latest@1m", "gpt-latest@272k"]);
 		expect(models[2].name).toBe("GPT-5.5 (gpt-latest) @ 1m");
@@ -299,7 +306,7 @@ describe("discoverModels", () => {
 			},
 		]);
 
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 
 		expect(models.map((model) => model.id)).toEqual(["model-a", "model-latest", "model-b", "model-stable"]);
 		expect(getCursorModelMetadata("model-shared")).toBeUndefined();
@@ -321,7 +328,7 @@ describe("discoverModels", () => {
 			},
 		]);
 
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 
 		expect(models.map((model) => model.id)).toEqual(["model-a", "model-a-latest", "model-b"]);
 		expect(getCursorModelMetadata("model-b")?.baseModelId).toBe("model-b");
@@ -338,7 +345,7 @@ describe("discoverModels", () => {
 			},
 		]);
 
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 
 		expect(models.map((model) => [model.id, model.contextWindow])).toEqual([
 			["gpt-5-mini", 272000],
@@ -374,7 +381,7 @@ describe("discoverModels", () => {
 				],
 			},
 		]);
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 		expect(models.map((model) => model.id)).toEqual([
 			"gpt-5.4@272k",
 			"gpt-5.4@272k:fast",
@@ -456,7 +463,7 @@ describe("discoverModels", () => {
 				],
 			},
 		]);
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 		expect(models.map((model) => model.id)).toEqual(["gpt-5.3-codex", "gpt-5.3-codex:fast", "gpt-5.3-codex:slow"]);
 		expect(getCursorModelMetadata("gpt-5.3-codex")?.defaultParams).toEqual([
 			{ id: "reasoning", value: "high" },
@@ -483,7 +490,7 @@ describe("discoverModels", () => {
 				},
 			]);
 
-			const models = await discoverModels();
+			const models = chatConfigs(await discoverModels());
 
 			expect(models.map((model) => [model.id, model.contextWindow])).toEqual([
 				["composer-2", 200000],
@@ -533,7 +540,7 @@ describe("discoverModels", () => {
 				},
 			]);
 
-			const models = await discoverModels();
+			const models = chatConfigs(await discoverModels());
 
 			expect(models.map((model) => [model.id, model.contextWindow])).toEqual([
 				["gpt-5.5@1m", 950000],
@@ -549,7 +556,7 @@ describe("discoverModels", () => {
 		if (!opus) throw new Error("claude-opus-4-8 fallback fixture missing");
 		saveCachedContextWindow("opus-4-8@1m", 310000);
 
-		const windowsById = Object.fromEntries(register([opus]).map(({ id, contextWindow }) => [id, contextWindow]));
+		const windowsById = Object.fromEntries(chatConfigs(register([opus])).map(({ id, contextWindow }) => [id, contextWindow]));
 
 		expect(windowsById["claude-opus-4-8@1m"]).toBe(300000);
 		expect(windowsById["opus-4.8@1m"]).toBe(300000);
@@ -560,7 +567,7 @@ describe("discoverModels", () => {
 		saveCachedContextWindow("base-context-model@1m", 300000);
 		saveCachedContextWindow("base-context-model@1m:fast", 320000);
 		saveCachedContextWindow("observed-alias@1m", 310000);
-		const windowsById = Object.fromEntries(register([{
+		const windowsById = Object.fromEntries(chatConfigs(register([{
 			id: "base-context-model",
 			displayName: "Base Context Model",
 			aliases: ["observed-alias", "unobserved-alias"],
@@ -573,7 +580,7 @@ describe("discoverModels", () => {
 				isDefault: true,
 				params: [{ id: "context", value: "1m" }, { id: "fast", value: "false" }],
 			}],
-		}]).map(({ id, contextWindow }) => [id, contextWindow]));
+		}])).map(({ id, contextWindow }) => [id, contextWindow]));
 
 		expect(windowsById["observed-alias@1m"]).toBe(310000);
 		expect(windowsById["unobserved-alias@1m"]).toBe(300000);
@@ -596,7 +603,7 @@ describe("discoverModels", () => {
 				},
 			]);
 
-			const models = await discoverModels();
+			const models = chatConfigs(await discoverModels());
 
 			expect(models.map((model) => [model.id, model.contextWindow])).toEqual([
 				["composer-2", 201000],
@@ -622,7 +629,7 @@ describe("discoverModels", () => {
 				},
 			]);
 
-			const models = await discoverModels();
+			const models = chatConfigs(await discoverModels());
 
 			expect(models.find((model) => model.id === "composer-2")?.contextWindow).toBe(200000);
 		} finally {
@@ -639,7 +646,7 @@ describe("discoverModels", () => {
 				variants: [{ params: [], displayName: "Gemini 3.1 Pro", isDefault: true }],
 			},
 		]);
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 		expect(models[0].reasoning).toBe(false);
 		expect(models[0].thinkingLevelMap).toBeUndefined();
 	});
@@ -673,7 +680,7 @@ describe("discoverModels", () => {
 				],
 			},
 		]);
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 		expect(models[0].thinkingLevelMap).toEqual({
 			off: "none",
 			minimal: "minimal",
@@ -707,7 +714,7 @@ describe("discoverModels", () => {
 				],
 			},
 		]);
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 		expect(models[0].thinkingLevelMap).toEqual({
 			off: "false",
 			minimal: null,
@@ -754,7 +761,7 @@ describe("discoverModels", () => {
 				],
 			},
 		]);
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 		expect(models.map((model) => model.id)).toEqual(["claude-opus-4-7@300k", "claude-opus-4-7@1m"]);
 		expect(models[0].contextWindow).toBe(300000);
 		expect(models[1].contextWindow).toBe(1000000);
@@ -779,7 +786,7 @@ describe("discoverModels", () => {
 			},
 		]);
 
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 
 		expect(models[0].input).toEqual(["text", "image"]);
 	});
@@ -801,7 +808,7 @@ describe("discoverModels", () => {
 			},
 		]);
 
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 
 		expect(models[0].thinkingLevelMap).toEqual({
 			off: null,
@@ -841,7 +848,7 @@ describe("discoverModels", () => {
 			},
 		]);
 
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 
 		expect(models[0].thinkingLevelMap).toEqual({
 			off: "false",
@@ -868,7 +875,7 @@ describe("discoverModels", () => {
 	it("keeps the fallback snapshot aligned with the current Composer 2.5 catalog shape", async () => {
 		delete process.env.CURSOR_API_KEY;
 
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 		const modelIds = models.map((model) => model.id);
 
 		expect(modelIds).toEqual(expect.arrayContaining(["composer-2.5", "composer-2-5", "composer-latest"]));
@@ -967,7 +974,7 @@ describe("discoverModels", () => {
 		mockedList.mockResolvedValueOnce([
 			{ id: "raw-id", variants: [{ params: [], displayName: "raw-id", isDefault: true }] } as unknown as ModelListItem,
 		]);
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 		expect(models[0].name).toBe("raw-id");
 	});
 
@@ -984,7 +991,7 @@ describe("discoverModels", () => {
 				],
 			},
 		]);
-		const models = await discoverModels();
+		const models = chatConfigs(await discoverModels());
 		expect(models[0].id).toBe("test-model");
 		expect(buildCursorModelSelection("test-model", "off")).toEqual({
 			id: "test-model",

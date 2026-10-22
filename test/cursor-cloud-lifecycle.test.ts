@@ -212,9 +212,23 @@ describe("Cursor cloud lifecycle ledger", () => {
 			registerCloudLifecycle(pi);
 			await pi.runSessionStart({ sessionManager: firstSessionManager });
 			const ledgerPath = cloudLifecycleTestUtils.durableLedgerPath(firstSessionFile, sessionId);
-			writeFileSync(ledgerPath, '{"partial":');
+			// Pi 1.4.0 SessionManager persists eagerly, so production records always anchor to a
+			// live session file. Hand-write the null-anchor first-turn orphan (plus framed first line)
+			// that Pi 0.87.1 lazy writes produced naturally, and drop the first file: that crash is
+			// exactly what this recovery path exists for.
+			writeFileSync(ledgerPath, '{"partial":\n' + JSON.stringify({
+				version: 1,
+				action: "record",
+				runtime: "cloud",
+				timestamp: "2026-07-07T00:00:00.000Z",
+				branches: [],
+				sessionId,
+				sessionFile: firstSessionFile,
+				anchorEntryId: null,
+				agentId: cloudAgentId(),
+			}) + "\n", { mode: 0o600 });
+			rmSync(firstSessionFile);
 
-			expect(recordCursorCloudLifecycleRun({ agentId: cloudAgentId(), branches: [] })).toBe(true);
 			const ledgerLines = readFileSync(ledgerPath, "utf8").trim().split(/\r?\n/);
 			expect(existsSync(firstSessionFile)).toBe(false);
 			if (process.platform !== "win32") expect(statSync(ledgerPath).mode & 0o777).toBe(0o600);
