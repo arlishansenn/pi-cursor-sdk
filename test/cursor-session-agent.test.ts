@@ -774,7 +774,7 @@ describe("cursor-session-agent", () => {
 			});
 			await vi.advanceTimersByTimeAsync(0);
 			expect(sessionAgentTestUtils.sessionAgentsByScope.has("/tmp/sessions/test.jsonl")).toBe(false);
-			await vi.advanceTimersByTimeAsync(999);
+			await vi.advanceTimersByTimeAsync(249);
 			expect(settled).toBe(false);
 			await vi.advanceTimersByTimeAsync(1);
 			await shutdown;
